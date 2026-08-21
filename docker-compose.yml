@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: support_copilot_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./support_copilot.db
+      - SECRET_KEY=super-secret-key-change-in-production-32-chars-minimum
+      - LLM_PROVIDER=template
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - RAG_CONFIDENCE_THRESHOLD=0.15
+    volumes:
+      - ./backend/data:/app/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: support_copilot_frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
