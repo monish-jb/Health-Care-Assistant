@@ -8,23 +8,22 @@ import { EmergencyBanner } from '../components/EmergencyBanner';
 import { CitationModal } from '../components/CitationModal';
 import { AgentWorkflowCard } from '../components/AgentWorkflowCard';
 import {
-  Plus,
   Send,
-  MessageSquare,
-  Trash2,
-  CheckCircle,
-  AlertTriangle,
-  Bot,
-  User,
-  Clock,
-  Heart,
   Sparkles,
   RefreshCw,
+  Bell,
+  Heart,
   Activity,
   Paperclip,
   ShieldAlert,
   ChevronRight,
-  BookOpen
+  ClipboardCheck,
+  Calendar,
+  Home,
+  User,
+  Plus,
+  Trash2,
+  FileText
 } from 'lucide-react';
 
 export const ChatPage = () => {
@@ -37,9 +36,11 @@ export const ChatPage = () => {
   const [inputContent, setInputContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [showContextPanel, setShowContextPanel] = useState(true);
+  const [showContextPanel, setShowContextPanel] = useState(false);
+  const [showSessionDrawer, setShowSessionDrawer] = useState(false);
   const [selectedCitation, setSelectedCitation] = useState(null);
   const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [bottomTab, setBottomTab] = useState('health-ai');
 
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -71,6 +72,7 @@ export const ChatPage = () => {
       setActiveConv(null);
       setMessages([]);
       setPatientContext(null);
+      setTriageAssessment(null);
       return;
     }
 
@@ -98,35 +100,17 @@ export const ChatPage = () => {
     setActiveConv(null);
     setMessages([]);
     setPatientContext(null);
+    setTriageAssessment(null);
     setInputContent('');
+    setShowSessionDrawer(false);
   };
 
-  const handleDeleteConversation = async (e, convId) => {
-    e.stopPropagation();
-    if (!window.confirm("Are you sure you want to delete this session?")) return;
+  const executeSendMessage = async (userText) => {
+    if (!userText.trim() || sending) return;
 
-    try {
-      await client.delete(`/chat/conversations/${convId}`);
-      if (activeConvId === convId) {
-        setActiveConvId(null);
-        setActiveConv(null);
-        setMessages([]);
-        setPatientContext(null);
-      }
-      loadConversations();
-    } catch (err) {
-      console.error("Failed to delete conversation:", err);
-    }
-  };
-
-  const executeSendMessage = async (textToSend) => {
-    if (!textToSend.trim() || sending) return;
-
-    const userText = textToSend.trim();
     setInputContent('');
     setSending(true);
 
-    // Optimistic user message preview
     const tempUserMsg = {
       id: Date.now(),
       role: 'user',
@@ -175,10 +159,6 @@ export const ChatPage = () => {
     executeSendMessage(chipText);
   };
 
-  const handleSelectSuggestedPrompt = (promptText) => {
-    executeSendMessage(promptText);
-  };
-
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -192,246 +172,220 @@ export const ChatPage = () => {
       const res = await client.post('/kb/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      alert(`Successfully processed document: ${res.data.filename} (${res.data.chunk_count} chunks extracted)`);
-      // Ask LLM to summarize uploaded doc in chat
-      executeSendMessage(`I have uploaded a medical document named '${res.data.filename}'. Could you explain its key clinical points or laboratory values?`);
+      alert(`Document uploaded: ${res.data.filename}`);
+      executeSendMessage(`I have uploaded my medical report "${file.name}". Please summarize key clinical findings.`);
     } catch (err) {
-      console.error("Failed to upload document:", err);
-      alert("Document upload failed. Ensure it is a valid .txt, .md, or .pdf file.");
+      console.error("Upload failed:", err);
+      alert("Upload failed. Please ensure backend is running.");
     } finally {
       setUploadingDoc(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  const handleResolve = async () => {
-    if (!activeConvId) return;
-    try {
-      await client.post(`/chat/resolve/${activeConvId}`);
-      setActiveConv((prev) => prev ? { ...prev, status: 'resolved' } : null);
-      loadConversations(activeConvId);
-    } catch (err) {
-      console.error("Failed to resolve conversation:", err);
-    }
-  };
-
-  const getStatusBadge = (statusStr) => {
-    switch (statusStr) {
-      case 'resolved':
-        return (
-          <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-            <CheckCircle size={10} /> Completed
-          </span>
-        );
-      case 'escalated':
-        return (
-          <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(239, 68, 68, 0.15)', color: '#fca5a5', border: '1px solid rgba(239, 68, 68, 0.3)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-            <AlertTriangle size={10} /> Triage Alert
-          </span>
-        );
-      default:
-        return (
-          <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(6, 182, 212, 0.15)', color: '#38bdf8', border: '1px solid rgba(6, 182, 212, 0.3)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-            <Clock size={10} /> Active Session
-          </span>
-        );
-    }
-  };
-
-  const latestMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-  const currentTriageLevel = latestMessage?.triage_level || 'GENERAL_INFO';
+  const currentTriageLevel = messages.length > 0
+    ? messages[messages.length - 1].triage_level || 'GENERAL_INFO'
+    : 'GENERAL_INFO';
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 61px)', overflow: 'hidden' }}>
-      {/* SIDEBAR: Conversation Sessions */}
+    <div style={{
+      minHeight: '100vh',
+      backgroundColor: '#0F172A',
+      display: 'flex',
+      justifyContent: 'center',
+      padding: '0',
+      width: '100%'
+    }}>
+      {/* MOBILE APPLICATION SHELL CONTAINER */}
       <div style={{
-        width: '300px',
-        background: 'rgba(15, 23, 42, 0.95)',
-        borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+        maxWidth: '520px',
+        width: '100%',
+        minHeight: '100vh',
+        background: '#FFFFFF',
         display: 'flex',
         flexDirection: 'column',
-        shrink: 0
+        position: 'relative',
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4)',
+        borderLeft: '1px solid rgba(255,255,255,0.05)',
+        borderRight: '1px solid rgba(255,255,255,0.05)'
       }}>
-        {/* New Session Button */}
-        <div style={{ padding: '16px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
-          <button
-            onClick={handleStartNewChat}
-            className="btn-primary"
-            style={{ width: '100%', justifyContent: 'center' }}
-          >
-            <Plus size={18} /> New Health Session
-          </button>
-        </div>
 
-        {/* Sessions List */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 10px' }}>
-          {loading ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: '0.85rem' }}>
-              Loading sessions...
-            </div>
-          ) : conversations.length === 0 ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: '0.85rem' }}>
-              No previous consultations. Start a new session above!
-            </div>
-          ) : (
-            conversations.map((conv) => {
-              const isSelected = conv.id === activeConvId;
-              return (
-                <div
-                  key={conv.id}
-                  onClick={() => setActiveConvId(conv.id)}
-                  style={{
-                    padding: '12px',
-                    borderRadius: '8px',
-                    marginBottom: '6px',
-                    cursor: 'pointer',
-                    background: isSelected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.02)',
-                    border: isSelected ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid transparent',
-                    transition: 'all 0.15s'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={{ fontWeight: 600, fontSize: '0.875rem', color: isSelected ? '#ffffff' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '170px' }}>
-                      {conv.title || `Consultation #${conv.id}`}
-                    </span>
-                    <button
-                      onClick={(e) => handleDeleteConversation(e, conv.id)}
-                      style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '2px' }}
-                      title="Delete chat"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px' }}>
-                    {getStatusBadge(conv.status)}
-                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                      {new Date(conv.updated_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                    </span>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-
-      {/* MAIN THREAD AREA */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'rgba(9, 13, 22, 0.5)' }}>
-        {/* Top Action Bar */}
+        {/* TOP MOBILE APP BAR */}
         <div style={{
-          padding: '14px 24px',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-          background: 'rgba(17, 24, 39, 0.6)',
+          background: '#FFFFFF',
+          borderBottom: '1px solid #E2E8F0',
+          padding: '12px 16px',
+          position: 'sticky',
+          top: 0,
+          zIndex: 40,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between'
+          justifyContent: 'space-between',
+          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.05)'
         }}>
           <div>
-            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Heart size={18} color="#10b981" />
-              {activeConv ? activeConv.title : 'Healthcare Companion Consultation'}
-            </h3>
-            {activeConv && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                {getStatusBadge(activeConv.status)}
-                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Session ID: #{activeConv.id}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '10px',
+                background: 'linear-gradient(135deg, #0B5A54 0%, #14B8A6 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                <Heart size={18} color="#FFFFFF" fill="#FFFFFF" />
               </div>
-            )}
+              <h1 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0F172A', margin: 0, letterSpacing: '-0.02em' }}>
+                Health AI
+              </h1>
+            </div>
+            <p style={{ fontSize: '0.675rem', color: '#64748B', margin: '2px 0 0 40px', fontWeight: 600 }}>
+              Clinical Assistant & Multi-Agent Guidance
+            </p>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{
+              fontSize: '0.675rem',
+              fontWeight: 800,
+              color: '#0B5A54',
+              background: '#E3F3F1',
+              padding: '4px 10px',
+              borderRadius: '9999px',
+              border: '1px solid rgba(11, 90, 84, 0.2)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}>
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10B981' }} />
+              AI Active
+            </span>
+
             <button
-              onClick={() => setShowContextPanel(!showContextPanel)}
-              className="btn-secondary"
-              style={{ fontSize: '0.8rem', borderColor: showContextPanel ? 'rgba(16, 185, 129, 0.4)' : 'rgba(255, 255, 255, 0.1)' }}
+              onClick={handleStartNewChat}
+              title="New Health Chat"
+              style={{
+                width: '34px',
+                height: '34px',
+                borderRadius: '50%',
+                background: '#F8FAFC',
+                border: '1px solid #E2E8F0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                color: '#0F172A'
+              }}
             >
-              <Activity size={15} color="#10b981" /> {showContextPanel ? 'Hide Patient Context' : 'Show Patient Context'}
+              <RefreshCw size={15} />
             </button>
 
-            {activeConv && activeConv.status !== 'resolved' && (
-              <button
-                onClick={handleResolve}
-                className="btn-secondary"
-                style={{ fontSize: '0.8rem', borderColor: 'rgba(16, 185, 129, 0.3)', color: '#34d399' }}
-              >
-                <CheckCircle size={15} /> Complete Session
-              </button>
-            )}
+            <button
+              onClick={() => setShowContextPanel(!showContextPanel)}
+              title="Patient Context Memory"
+              style={{
+                width: '34px',
+                height: '34px',
+                borderRadius: '50%',
+                background: showContextPanel ? '#E3F3F1' : '#F8FAFC',
+                border: showContextPanel ? '1px solid #0B5A54' : '1px solid #E2E8F0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                color: showContextPanel ? '#0B5A54' : '#0F172A'
+              }}
+            >
+              <Activity size={15} />
+            </button>
           </div>
         </div>
 
-        {/* MESSAGES CONTAINER */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+        {/* PATIENT CONTEXT DRAWER / PANEL (MOBILE TOGGLE) */}
+        {showContextPanel && (
+          <div style={{
+            background: '#F8FAFC',
+            borderBottom: '2px solid #E2E8F0',
+            padding: '14px',
+            animation: 'fadeIn 0.2s ease-in-out'
+          }}>
+            <PatientContextPanel patientContext={patientContext} />
+          </div>
+        )}
+
+        {/* CHAT MESSAGES STREAM AREA */}
+        <div style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '14px',
+          paddingBottom: '110px',
+          background: '#FAFAFA'
+        }}>
+          {/* Medical Disclaimer Banner */}
           <EmergencyBanner triageLevel={currentTriageLevel} />
 
           {messages.length === 0 ? (
             <div style={{
-              height: '100%',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
               textAlign: 'center',
-              color: '#64748b',
-              padding: '20px'
+              padding: '24px 8px',
+              color: '#64748B'
             }}>
               <div style={{
-                width: '68px',
-                height: '68px',
-                borderRadius: '24px',
-                background: 'rgba(16, 185, 129, 0.12)',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
+                width: '56px',
+                height: '56px',
+                borderRadius: '20px',
+                background: '#E3F3F1',
+                border: '1px solid rgba(11, 90, 84, 0.2)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                marginBottom: '16px'
+                marginBottom: '12px'
               }}>
-                <Heart size={34} color="#34d399" fill="#34d399" />
+                <Sparkles size={28} color="#0B5A54" />
               </div>
-              <h3 style={{ color: '#f1f5f9', fontWeight: 800, fontSize: '1.25rem', marginBottom: '8px' }}>
-                Healthcare Knowledge Navigator
+              <h3 style={{ color: '#0F172A', fontWeight: 800, fontSize: '1.15rem', marginBottom: '6px' }}>
+                Healthcare Knowledge Copilot
               </h3>
-              <p style={{ maxWidth: '480px', fontSize: '0.9rem', color: '#94a3b8', lineHeight: 1.5, marginBottom: '24px' }}>
-                Tell me what you are experiencing or upload a medical report. I will gather clinical context, ask targeted follow-up questions, and provide evidence-grounded insights.
+              <p style={{ fontSize: '0.825rem', color: '#64748B', maxWidth: '340px', lineHeight: 1.5, marginBottom: '20px' }}>
+                Describe any symptoms or upload lab reports. The 4-agent system provides preliminary triage, doctor booking, SOAP notes, and care reminders.
               </p>
 
-              {/* Starter Prompts */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', maxWidth: '580px', width: '100%' }}>
+              {/* Quick Prompt Cards */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
                 {[
-                  "My mother has been feeling tired for the last few weeks.",
-                  "What does a high TSH value in a blood report mean?",
-                  "Can I take ibuprofen with blood pressure medication?",
-                  "I have sharp abdominal pain for 2 days."
+                  "I have had fever and chills for 2 days.",
+                  "I am feeling extreme fatigue and weight gain.",
+                  "What does a high TSH level indicate?",
+                  "I have sharp stomach pain and nausea."
                 ].map((prompt, idx) => (
                   <button
                     key={idx}
-                    onClick={() => handleSelectSuggestedPrompt(prompt)}
+                    onClick={() => executeSendMessage(prompt)}
                     style={{
-                      background: 'rgba(30, 41, 59, 0.6)',
-                      border: '1px solid rgba(255, 255, 255, 0.08)',
-                      borderRadius: '10px',
-                      padding: '12px 14px',
+                      background: '#FFFFFF',
+                      border: '1px solid #E2E8F0',
+                      borderRadius: '14px',
+                      padding: '10px 14px',
                       textAlign: 'left',
-                      color: '#cbd5e1',
-                      fontSize: '0.825rem',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: '#1E293B',
                       cursor: 'pointer',
-                      transition: 'all 0.2s',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between'
                     }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = 'rgba(16, 185, 129, 0.4)';
-                      e.currentTarget.style.background = 'rgba(30, 41, 59, 0.9)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
-                      e.currentTarget.style.background = 'rgba(30, 41, 59, 0.6)';
-                    }}
                   >
-                    <span>"{prompt}"</span>
-                    <ChevronRight size={14} color="#10b981" />
+                    <span>{prompt}</span>
+                    <ChevronRight size={14} color="#94A3B8" />
                   </button>
                 ))}
               </div>
@@ -446,51 +400,53 @@ export const ChatPage = () => {
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    alignItems: isUser ? 'flex-end' : 'flex-start',
-                    marginBottom: '20px'
+                    alignItems: isUser ? 'flex-end' : 'flex-start'
                   }}
                 >
                   <div style={{
-                    maxWidth: '82%',
+                    maxWidth: '88%',
                     display: 'flex',
                     flexDirection: isUser ? 'row-reverse' : 'row',
-                    gap: '12px',
+                    gap: '8px',
                     alignItems: 'flex-start'
                   }}>
                     {/* Avatar Icon */}
                     <div style={{
-                      width: '34px',
-                      height: '34px',
+                      width: '28px',
+                      height: '28px',
                       borderRadius: '50%',
-                      background: isUser ? 'linear-gradient(135deg, #06b6d4, #0891b2)' : 'linear-gradient(135deg, #10b981, #059669)',
+                      background: isUser ? '#0F172A' : '#0B5A54',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       shrink: 0,
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+                      color: '#FFFFFF',
+                      marginTop: '2px'
                     }}>
-                      {isUser ? <User size={16} color="#fff" /> : <Heart size={16} color="#fff" fill="#fff" />}
+                      {isUser ? <User size={14} /> : <Heart size={14} fill="#FFFFFF" />}
                     </div>
 
                     {/* Bubble Content */}
                     <div style={{ width: '100%' }}>
                       <div
-                        className="chat-bubble"
                         style={{
-                          background: isUser ? 'rgba(6, 182, 212, 0.2)' : 'rgba(30, 41, 59, 0.85)',
-                          border: isUser ? '1px solid rgba(6, 182, 212, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
-                          borderRadius: isUser ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
-                          padding: '14px 18px',
-                          color: '#f8fafc',
-                          fontSize: '0.925rem',
-                          lineHeight: 1.6,
+                          background: isUser ? 'linear-gradient(135deg, #0B5A54 0%, #14B8A6 100%)' : '#FFFFFF',
+                          border: isUser ? 'none' : '1px solid #E2E8F0',
+                          borderRadius: isUser ? '16px 16px 2px 16px' : '16px 16px 16px 2px',
+                          padding: '12px 16px',
+                          color: isUser ? '#FFFFFF' : '#0F172A',
+                          fontSize: '0.85rem',
+                          lineHeight: 1.55,
                           whiteSpace: 'pre-wrap',
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                          boxShadow: isUser
+                            ? '0 3px 10px rgba(11, 90, 84, 0.2)'
+                            : '0 2px 6px rgba(0,0,0,0.04)',
+                          textAlign: 'left'
                         }}
                       >
                         {msg.content}
 
-                        {/* Quick Option Chips (Follow-up questions) */}
+                        {/* Follow-Up Quick Option Chips */}
                         {!isUser && msg.followup_options && (
                           <FollowUpChips
                             options={msg.followup_options}
@@ -500,7 +456,7 @@ export const ChatPage = () => {
                         )}
                       </div>
 
-                      {/* Reasoning & Citations Widget */}
+                      {/* Evidence Reasoning & Citations */}
                       {!isUser && (
                         <>
                           <ReasoningBadge
@@ -529,22 +485,36 @@ export const ChatPage = () => {
           )}
 
           {sending && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#34d399', fontSize: '0.85rem', marginTop: '12px' }}>
-              <RefreshCw size={16} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
-              <span>Analyzing clinical intent, patient context & evidence guidelines...</span>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              color: '#0B5A54',
+              fontSize: '0.775rem',
+              fontWeight: 700,
+              padding: '6px 10px'
+            }}>
+              <RefreshCw size={14} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
+              <span>AI Triage Agent is evaluating symptoms & clinical guidelines...</span>
             </div>
           )}
 
           <div ref={messagesEndRef} />
         </div>
 
-        {/* INPUT FORM AREA */}
+        {/* FIXED MOBILE INPUT BAR */}
         <div style={{
-          padding: '16px 24px',
-          background: 'rgba(17, 24, 39, 0.9)',
-          borderTop: '1px solid rgba(255, 255, 255, 0.08)'
+          position: 'fixed',
+          bottom: '56px',
+          maxWidth: '520px',
+          width: '100%',
+          padding: '10px 14px',
+          background: 'rgba(255, 255, 255, 0.96)',
+          backdropFilter: 'blur(10px)',
+          borderTop: '1px solid #E2E8F0',
+          zIndex: 30
         }}>
-          <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <input
               type="file"
               ref={fileInputRef}
@@ -556,41 +526,142 @@ export const ChatPage = () => {
               type="button"
               disabled={uploadingDoc || sending}
               onClick={() => fileInputRef.current?.click()}
-              className="btn-secondary"
-              style={{ padding: '12px', borderRadius: '8px' }}
-              title="Attach lab report or clinical document (.pdf, .txt)"
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                background: '#F1F5F9',
+                border: '1px solid #E2E8F0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#64748B',
+                cursor: 'pointer'
+              }}
+              title="Attach lab report (.pdf, .txt)"
             >
-              <Paperclip size={18} color="#34d399" />
+              <Paperclip size={16} />
             </button>
 
-            <input
-              type="text"
-              className="glass-input"
-              style={{ flex: 1, padding: '14px 18px', fontSize: '0.925rem' }}
-              placeholder="Describe your health question, symptoms, or medication..."
-              value={inputContent}
-              onChange={(e) => setInputContent(e.target.value)}
-              disabled={sending}
-            />
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              background: '#F8FAFC',
+              border: '1px solid #E2E8F0',
+              borderRadius: '9999px',
+              padding: '4px 12px'
+            }}>
+              <div style={{
+                width: '24px',
+                height: '24px',
+                borderRadius: '50%',
+                background: '#E3F3F1',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#0B5A54'
+              }}>
+                <Sparkles size={12} />
+              </div>
+              <input
+                type="text"
+                value={inputContent}
+                onChange={(e) => setInputContent(e.target.value)}
+                placeholder="Ask AI or describe symptoms..."
+                disabled={sending}
+                style={{
+                  flex: 1,
+                  background: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  fontSize: '0.825rem',
+                  fontWeight: 600,
+                  color: '#0F172A',
+                  padding: '6px 0'
+                }}
+              />
+            </div>
 
             <button
               type="submit"
-              disabled={sending || !inputContent.trim()}
-              className="btn-primary"
-              style={{ padding: '0 24px', height: '48px' }}
+              disabled={!inputContent.trim() || sending}
+              style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #0B5A54 0%, #14B8A6 100%)',
+                border: 'none',
+                color: '#FFFFFF',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: inputContent.trim() && !sending ? 'pointer' : 'not-allowed',
+                opacity: inputContent.trim() && !sending ? 1 : 0.4,
+                boxShadow: '0 2px 8px rgba(11, 90, 84, 0.3)',
+                transition: 'all 0.15s ease'
+              }}
             >
-              <Send size={18} /> Send
+              <Send size={15} />
             </button>
           </form>
         </div>
+
+        {/* BOTTOM MOBILE NAVIGATION BAR */}
+        <div style={{
+          position: 'fixed',
+          bottom: 0,
+          maxWidth: '520px',
+          width: '100%',
+          height: '56px',
+          background: '#FFFFFF',
+          borderTop: '1px solid #E2E8F0',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          alignItems: 'center',
+          zIndex: 40
+        }}>
+          {[
+            { id: 'health-ai', label: 'Health AI', icon: Heart },
+            { id: 'triage', label: 'Triage AI', icon: Sparkles, action: () => executeSendMessage("Run complete 4-agent triage assessment on my symptoms.") },
+            { id: 'context', label: 'Context', icon: Activity, action: () => setShowContextPanel(!showContextPanel) },
+            { id: 'new', label: 'New Chat', icon: Plus, action: handleStartNewChat }
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isSelected = bottomTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setBottomTab(tab.id);
+                  if (tab.action) tab.action();
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '2px',
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: isSelected ? '#0B5A54' : '#94A3B8',
+                  fontSize: '0.675rem',
+                  fontWeight: isSelected ? 800 : 600,
+                  height: '100%'
+                }}
+              >
+                <Icon size={18} color={isSelected ? '#0B5A54' : '#94A3B8'} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
       </div>
 
-      {/* PATIENT CONTEXT RIGHT SIDE PANEL */}
-      {showContextPanel && (
-        <PatientContextPanel patientContext={patientContext} />
-      )}
-
-      {/* CITATION PASSAGE MODAL */}
+      {/* Citation Modal */}
       {selectedCitation && (
         <CitationModal
           citation={selectedCitation}

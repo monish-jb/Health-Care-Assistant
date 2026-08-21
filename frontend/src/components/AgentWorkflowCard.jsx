@@ -13,7 +13,8 @@ import {
   ShieldCheck,
   Building2,
   Pill,
-  Sparkles
+  Sparkles,
+  User
 } from 'lucide-react';
 
 export const AgentWorkflowCard = ({ triageData, conversationId, onBookingSuccess }) => {
@@ -129,7 +130,6 @@ export const AgentWorkflowCard = ({ triageData, conversationId, onBookingSuccess
     try {
       const res = await client.get('/api/agents/care/reminders');
       if (res.data.length === 0) {
-        // Auto-generate initial reminders
         const genRes = await client.post('/api/agents/care/reminders/generate', {});
         setReminders(genRes.data);
       } else {
@@ -152,305 +152,520 @@ export const AgentWorkflowCard = ({ triageData, conversationId, onBookingSuccess
   };
 
   return (
-    <div className="mt-4 rounded-2xl border border-teal-500/30 bg-gradient-to-b from-slate-900/95 to-slate-950/95 p-4 shadow-xl text-slate-200">
-      {/* 4-Agent Pipeline Header */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
-        <div className="flex items-center space-x-2">
-          <div className="h-8 w-8 rounded-lg bg-teal-500/20 text-teal-400 flex items-center justify-center font-bold text-xs border border-teal-500/40">
+    <div style={{
+      marginTop: '16px',
+      borderRadius: '20px',
+      background: '#FFFFFF',
+      border: '1px solid #E2E8F0',
+      boxShadow: '0 4px 20px -2px rgba(11, 90, 84, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.04)',
+      overflow: 'hidden',
+      textAlign: 'left'
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: '14px 18px',
+        background: 'linear-gradient(135deg, #0B5A54 0%, #14B8A6 100%)',
+        color: '#FFFFFF',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{
+            width: '32px',
+            height: '32px',
+            borderRadius: '10px',
+            background: 'rgba(255, 255, 255, 0.2)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontWeight: 800,
+            fontSize: '0.75rem'
+          }}>
             4-AI
           </div>
           <div>
-            <h4 className="text-sm font-semibold text-white flex items-center gap-1.5">
-              Multi-Agent Healthcare Guidance System
-              <Sparkles className="w-3.5 h-3.5 text-teal-400 animate-pulse" />
+            <h4 style={{ fontSize: '0.875rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              Multi-Agent Clinical Pipeline
+              <Sparkles size={14} color="#A7F3D0" />
             </h4>
-            <p className="text-xs text-slate-400">Safe by Design: AI recommends • Human confirms</p>
+            <p style={{ fontSize: '0.7rem', color: '#CCFBF1', margin: 0, fontWeight: 500 }}>
+              AI Recommends • Human Checkpoint Finalizes
+            </p>
           </div>
         </div>
+
+        <span style={{
+          fontSize: '0.65rem',
+          fontWeight: 700,
+          background: 'rgba(255, 255, 255, 0.25)',
+          padding: '4px 8px',
+          borderRadius: '9999px',
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em'
+        }}>
+          Live Connected
+        </span>
       </div>
 
       {/* 4 Agent Navigation Tabs */}
-      <div className="grid grid-cols-4 gap-1 bg-slate-950/60 p-1 rounded-xl border border-slate-800 text-xs font-medium mb-4">
-        <button
-          onClick={() => setActiveTab('triage')}
-          className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-all ${
-            activeTab === 'triage' ? 'bg-teal-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Stethoscope className="w-3.5 h-3.5" />
-          <span>1. Triage</span>
-        </button>
-
-        <button
-          onClick={() => { setActiveTab('booking'); fetchDoctors(department); }}
-          className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-all ${
-            activeTab === 'booking' ? 'bg-teal-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Calendar className="w-3.5 h-3.5" />
-          <span>2. Booking</span>
-        </button>
-
-        <button
-          onClick={() => { setActiveTab('soap'); loadSoapReport(); }}
-          className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-all ${
-            activeTab === 'soap' ? 'bg-teal-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <FileText className="w-3.5 h-3.5" />
-          <span>3. SOAP Note</span>
-        </button>
-
-        <button
-          onClick={() => { setActiveTab('care'); loadCareReminders(); }}
-          className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-all ${
-            activeTab === 'care' ? 'bg-teal-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Bell className="w-3.5 h-3.5" />
-          <span>4. Care</span>
-        </button>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4, 1fr)',
+        background: '#F8FAFC',
+        padding: '6px',
+        borderBottom: '1px solid #E2E8F0',
+        gap: '4px'
+      }}>
+        {[
+          { id: 'triage', label: '1. Triage', icon: Stethoscope },
+          { id: 'booking', label: '2. Booking', icon: Calendar, action: () => fetchDoctors(department) },
+          { id: 'soap', label: '3. SOAP Note', icon: FileText, action: loadSoapReport },
+          { id: 'care', label: '4. Care', icon: Bell, action: loadCareReminders }
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isSelected = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => {
+                setActiveTab(tab.id);
+                if (tab.action) tab.action();
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '5px',
+                padding: '8px 4px',
+                borderRadius: '12px',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '0.75rem',
+                fontWeight: isSelected ? 800 : 600,
+                color: isSelected ? '#FFFFFF' : '#64748B',
+                background: isSelected ? '#0B5A54' : 'transparent',
+                boxShadow: isSelected ? '0 2px 8px rgba(11, 90, 84, 0.25)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <Icon size={14} />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* TAB 1: TRIAGE AGENT */}
-      {activeTab === 'triage' && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between p-3 rounded-xl bg-teal-950/30 border border-teal-800/40">
+      {/* Tab Body */}
+      <div style={{ padding: '16px' }}>
+        {/* TAB 1: TRIAGE AGENT */}
+        {activeTab === 'triage' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 14px',
+              borderRadius: '14px',
+              background: '#E3F3F1',
+              border: '1px solid rgba(11, 90, 84, 0.15)'
+            }}>
+              <div>
+                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#0B5A54', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Recommended Department
+                </span>
+                <h5 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0F172A', margin: '2px 0 0 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Building2 size={16} color="#0B5A54" />
+                  Department of {triageData?.department || 'General Medicine'}
+                </h5>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '0.65rem', color: '#64748B', display: 'block', fontWeight: 600 }}>Confidence Gate</span>
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontSize: '0.7rem',
+                  fontWeight: 800,
+                  color: '#0B5A54',
+                  background: '#FFFFFF',
+                  padding: '3px 8px',
+                  borderRadius: '9999px',
+                  border: '1px solid rgba(11, 90, 84, 0.2)'
+                }}>
+                  <ShieldCheck size={12} color="#0B5A54" />
+                  {triageData?.confidence_gate || 'ROUTED'}
+                </span>
+              </div>
+            </div>
+
             <div>
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-teal-400">Routed Department</span>
-              <h5 className="text-base font-bold text-white flex items-center gap-2 mt-0.5">
-                <Building2 className="w-4 h-4 text-teal-400" />
-                Department of {triageData?.department || 'General Medicine'}
-              </h5>
-            </div>
-            <div className="text-right">
-              <span className="text-[11px] text-slate-400">Confidence Gate</span>
-              <div className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30 mt-0.5">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                {triageData?.confidence_gate || 'ROUTED'}
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <h6 className="text-xs font-medium text-slate-300 mb-2">Ranked Possibility Assessment (Preliminary)</h6>
-            <div className="space-y-1.5">
-              {triageData?.ranked_possibilities?.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between p-2 rounded-lg bg-slate-800/60 border border-slate-700/50 text-xs">
-                  <span className="text-slate-200">{item.condition}</span>
-                  <span className="font-semibold text-teal-400 bg-teal-950/60 px-2 py-0.5 rounded border border-teal-800/40">
-                    {item.probability}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="pt-2 flex justify-end">
-            <button
-              onClick={() => { setActiveTab('booking'); fetchDoctors(department); }}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-medium text-xs shadow-lg shadow-teal-900/30 transition"
-            >
-              <span>Proceed to Conflict-Free Booking</span>
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 2: BOOKING AGENT */}
-      {activeTab === 'booking' && (
-        <div className="space-y-3">
-          {bookingError && (
-            <div className="p-2.5 rounded-lg bg-rose-950/50 border border-rose-800 text-rose-300 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-              <span>{bookingError}</span>
-            </div>
-          )}
-
-          {confirmedAppt ? (
-            <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-800/50 text-center space-y-2">
-              <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
-              <h5 className="text-sm font-bold text-white">Appointment Locked & Confirmed!</h5>
-              <p className="text-xs text-emerald-200">
-                Doctor: <strong>{confirmedAppt.doctor_name}</strong> • {confirmedAppt.slot_time}
-              </p>
-              <div className="inline-block px-3 py-1 rounded-lg bg-emerald-900/60 border border-emerald-700 text-xs font-mono font-bold text-emerald-300">
-                Ref: {confirmedAppt.booking_reference}
-              </div>
-            </div>
-          ) : provisionalAppt ? (
-            <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-800/50 space-y-3">
-              <div className="flex items-center gap-2 text-amber-300 text-xs font-semibold">
-                <Clock className="w-4 h-4 text-amber-400" />
-                <span>Slot Provisionally Held (Requires Confirmation)</span>
-              </div>
-              <div className="text-xs space-y-1 text-slate-300">
-                <p>Doctor: <strong>{provisionalAppt.doctor_name}</strong> ({provisionalAppt.department})</p>
-                <p>Location: <strong>{provisionalAppt.room_no}</strong></p>
-                <p>Time Slot: <strong>{provisionalAppt.slot_time}</strong></p>
-                <p>Reference: <span className="font-mono text-amber-400">{provisionalAppt.booking_reference}</span></p>
-              </div>
-              <button
-                onClick={handleConfirmBooking}
-                disabled={bookingLoading}
-                className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow transition"
-              >
-                {bookingLoading ? "Finalizing Lock..." : "Confirm & Finalize Appointment Lock"}
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs font-medium text-slate-300 block mb-1">Available Doctors in {department}:</label>
-                <select
-                  value={selectedDoctor?.doctor_id || ''}
-                  onChange={(e) => {
-                    const doc = doctors.find(d => d.doctor_id === parseInt(e.target.value));
-                    setSelectedDoctor(doc);
-                    if (doc?.available_slots?.length > 0) setSelectedSlot(doc.available_slots[0]);
-                  }}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-teal-500"
-                >
-                  {doctors.map(d => (
-                    <option key={d.doctor_id} value={d.doctor_id}>
-                      {d.name} — {d.title} ({d.room_no})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-medium text-slate-300 block mb-1">Available Open Slots:</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {selectedDoctor?.available_slots?.map((slot) => (
-                    <button
-                      key={slot.slot_id}
-                      onClick={() => setSelectedSlot(slot)}
-                      className={`p-2 rounded-xl border text-xs font-medium text-left transition ${
-                        selectedSlot?.slot_id === slot.slot_id
-                          ? 'border-teal-500 bg-teal-950/40 text-teal-300 shadow'
-                          : 'border-slate-800 bg-slate-850 text-slate-300 hover:border-slate-700'
-                      }`}
-                    >
-                      <Clock className="w-3.5 h-3.5 text-teal-400 inline-block mr-1.5" />
-                      {slot.slot_time}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <button
-                onClick={handleReserveSlot}
-                disabled={bookingLoading || !selectedSlot}
-                className="w-full py-2 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white font-medium text-xs shadow transition"
-              >
-                {bookingLoading ? "Reserving..." : "Hold Slot & Proceed to Confirmation"}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* TAB 3: REPORT AGENT (SOAP NOTE) */}
-      {activeTab === 'soap' && (
-        <div className="space-y-3">
-          {soapLoading ? (
-            <div className="py-8 text-center text-xs text-slate-400">Generating structured SOAP clinical draft...</div>
-          ) : soapData ? (
-            <div className="space-y-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-800/80 border border-slate-700 space-y-2">
-                <div className="flex items-center justify-between border-b border-slate-700 pb-2">
-                  <span className="font-bold text-teal-400">Subjective (S)</span>
-                  <span className="text-[10px] text-slate-400">Patient Intake</span>
-                </div>
-                <p className="text-slate-300 whitespace-pre-line">{soapData.subjective}</p>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-800/80 border border-slate-700 space-y-2">
-                <div className="flex items-center justify-between border-b border-slate-700 pb-2">
-                  <span className="font-bold text-teal-400">Assessment & Plan (A/P)</span>
-                  <span className="text-[10px] text-slate-400">Clinical Formulation</span>
-                </div>
-                <p className="text-slate-300 whitespace-pre-line">{soapData.assessment}</p>
-                <div className="pt-2 border-t border-slate-700/60">
-                  <span className="text-[11px] font-semibold text-slate-200">Suggested Preliminary Tests:</span>
-                  <ul className="list-disc list-inside text-slate-300 mt-1 space-y-0.5">
-                    {soapData.suggested_tests?.map((t, idx) => (
-                      <li key={idx}>{t}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-
-              {soapApproved ? (
-                <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-800/50 flex items-center gap-2 text-emerald-300">
-                  <UserCheck className="w-4 h-4 text-emerald-400" />
-                  <span>Approved & Signed by Attending Physician</span>
-                </div>
-              ) : (
-                <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-700 space-y-2">
-                  <label className="font-medium text-slate-300 block">Doctor Review Checkpoint (Editable Draft):</label>
-                  <input
-                    type="text"
-                    value={doctorNotes}
-                    onChange={(e) => setDoctorNotes(e.target.value)}
-                    placeholder="Add physician review notes or modifications..."
-                    className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-teal-500"
-                  />
-                  <button
-                    onClick={handleApproveSoap}
-                    className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-medium text-xs transition"
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0F172A', display: 'block', marginBottom: '8px' }}>
+                Ranked Possibility Assessment (Preliminary, Not Diagnosis)
+              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {triageData?.ranked_possibilities?.map((item, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 12px',
+                      borderRadius: '12px',
+                      background: '#F8FAFC',
+                      border: '1px solid #E2E8F0',
+                      fontSize: '0.8rem'
+                    }}
                   >
-                    Physician Review & Approve Note
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="py-6 text-center text-xs text-slate-400">Start symptom chat to generate SOAP note.</div>
-          )}
-        </div>
-      )}
-
-      {/* TAB 4: CARE AGENT */}
-      {activeTab === 'care' && (
-        <div className="space-y-3">
-          <div className="text-xs text-slate-300">
-            Post-discharge medication reminders scheduled based on approved treatment protocols:
-          </div>
-
-          {remindersLoading ? (
-            <div className="py-6 text-center text-xs text-slate-400">Loading care reminders...</div>
-          ) : reminders.length > 0 ? (
-            <div className="space-y-2">
-              {reminders.map((r) => (
-                <div key={r.id} className="p-3 rounded-xl bg-slate-800/70 border border-slate-700/60 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <Pill className="w-4 h-4 text-teal-400" />
-                    <div>
-                      <h6 className="text-xs font-bold text-white">{r.medication_name} ({r.dosage})</h6>
-                      <p className="text-[11px] text-slate-400">{r.frequency} • {r.reminder_time}</p>
-                    </div>
+                    <span style={{ color: '#1E293B', fontWeight: 600 }}>{item.condition}</span>
+                    <span style={{
+                      fontWeight: 800,
+                      color: '#0B5A54',
+                      background: '#E3F3F1',
+                      padding: '2px 8px',
+                      borderRadius: '9999px',
+                      fontSize: '0.75rem'
+                    }}>
+                      {item.probability}
+                    </span>
                   </div>
-                  <button
-                    onClick={() => handleToggleReminder(r.id)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
-                      r.status === 'active'
-                        ? 'bg-emerald-950/60 border border-emerald-700/60 text-emerald-300 hover:bg-emerald-900/60'
-                        : 'bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    {r.status === 'active' ? 'Active' : 'Paused'}
-                  </button>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          ) : (
-            <div className="py-6 text-center text-xs text-slate-400">No active medication reminders.</div>
-          )}
-        </div>
-      )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
+              <button
+                onClick={() => {
+                  setActiveTab('booking');
+                  fetchDoctors(department);
+                }}
+                className="btn-primary"
+                style={{ fontSize: '0.8rem', padding: '9px 16px' }}
+              >
+                <span>Proceed to Conflict-Free Booking</span>
+                <ChevronRight size={15} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: BOOKING AGENT */}
+        {activeTab === 'booking' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {bookingError && (
+              <div style={{
+                padding: '10px 12px',
+                borderRadius: '12px',
+                background: '#FFE4E6',
+                border: '1px solid #FECDD3',
+                color: '#BE123C',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <AlertCircle size={16} />
+                <span>{bookingError}</span>
+              </div>
+            )}
+
+            {confirmedAppt ? (
+              <div style={{
+                padding: '20px',
+                borderRadius: '16px',
+                background: '#ECFDF5',
+                border: '1px solid #A7F3D0',
+                textAlign: 'center'
+              }}>
+                <CheckCircle2 size={36} color="#059669" style={{ margin: '0 auto 8px auto' }} />
+                <h5 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#065F46', margin: '0 0 4px 0' }}>
+                  Appointment Locked & Confirmed!
+                </h5>
+                <p style={{ fontSize: '0.8rem', color: '#047857', margin: '0 0 10px 0', fontWeight: 500 }}>
+                  Doctor: <strong>{confirmedAppt.doctor_name}</strong> • {confirmedAppt.slot_time}
+                </p>
+                <div style={{
+                  display: 'inline-block',
+                  padding: '6px 14px',
+                  borderRadius: '10px',
+                  background: '#FFFFFF',
+                  border: '1px solid #6EE7B7',
+                  fontSize: '0.8rem',
+                  fontWeight: 800,
+                  fontFamily: 'monospace',
+                  color: '#065F46'
+                }}>
+                  Ref: {confirmedAppt.booking_reference}
+                </div>
+              </div>
+            ) : provisionalAppt ? (
+              <div style={{
+                padding: '16px',
+                borderRadius: '14px',
+                background: '#FFFBEB',
+                border: '1px solid #FDE68A',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#B45309', fontSize: '0.8rem', fontWeight: 700 }}>
+                  <Clock size={16} />
+                  <span>Slot Provisionally Held (Requires Confirmation)</span>
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#78350F', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  <p style={{ margin: 0 }}>Doctor: <strong>{provisionalAppt.doctor_name}</strong> ({provisionalAppt.department})</p>
+                  <p style={{ margin: 0 }}>Location: <strong>{provisionalAppt.room_no}</strong></p>
+                  <p style={{ margin: 0 }}>Time: <strong>{provisionalAppt.slot_time}</strong></p>
+                  <p style={{ margin: 0 }}>Reference: <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{provisionalAppt.booking_reference}</span></p>
+                </div>
+                <button
+                  onClick={handleConfirmBooking}
+                  disabled={bookingLoading}
+                  className="btn-primary"
+                  style={{ width: '100%', padding: '10px', fontSize: '0.85rem' }}
+                >
+                  {bookingLoading ? "Finalizing Lock..." : "Confirm & Finalize Appointment Lock"}
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0F172A', display: 'block', marginBottom: '6px' }}>
+                    Available Specialists in {department}:
+                  </label>
+                  <select
+                    value={selectedDoctor?.doctor_id || ''}
+                    onChange={(e) => {
+                      const doc = doctors.find(d => d.doctor_id === parseInt(e.target.value));
+                      setSelectedDoctor(doc);
+                      if (doc?.available_slots?.length > 0) setSelectedSlot(doc.available_slots[0]);
+                    }}
+                    className="input-carepulse"
+                  >
+                    {doctors.map(d => (
+                      <option key={d.doctor_id} value={d.doctor_id}>
+                        {d.name} — {d.title} ({d.room_no})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0F172A', display: 'block', marginBottom: '6px' }}>
+                    Live Available Slots:
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    {selectedDoctor?.available_slots?.map((slot) => {
+                      const isSelected = selectedSlot?.slot_id === slot.slot_id;
+                      return (
+                        <button
+                          key={slot.slot_id}
+                          onClick={() => setSelectedSlot(slot)}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: '12px',
+                            border: isSelected ? '2px solid #0B5A54' : '1px solid #E2E8F0',
+                            background: isSelected ? '#E3F3F1' : '#F8FAFC',
+                            color: isSelected ? '#0B5A54' : '#1E293B',
+                            fontWeight: isSelected ? 800 : 600,
+                            fontSize: '0.75rem',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <Clock size={14} color={isSelected ? '#0B5A54' : '#64748B'} />
+                          {slot.slot_time}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleReserveSlot}
+                  disabled={bookingLoading || !selectedSlot}
+                  className="btn-primary"
+                  style={{ width: '100%', padding: '10px', fontSize: '0.85rem' }}
+                >
+                  {bookingLoading ? "Reserving..." : "Hold Slot & Proceed to Confirmation"}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 3: REPORT AGENT (SOAP NOTE) */}
+        {activeTab === 'soap' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '0.8rem' }}>
+            {soapLoading ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: '#64748B' }}>
+                Synthesizing structured SOAP clinical draft note...
+              </div>
+            ) : soapData ? (
+              <>
+                <div style={{ padding: '12px', borderRadius: '12px', background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #E2E8F0', paddingBottom: '6px', marginBottom: '6px' }}>
+                    <span style={{ fontWeight: 800, color: '#0B5A54' }}>Subjective (S)</span>
+                    <span style={{ fontSize: '0.7rem', color: '#64748B' }}>Patient Intake</span>
+                  </div>
+                  <p style={{ color: '#334155', margin: 0, whiteSpace: 'pre-line', lineHeight: 1.5 }}>
+                    {soapData.subjective}
+                  </p>
+                </div>
+
+                <div style={{ padding: '12px', borderRadius: '12px', background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #E2E8F0', paddingBottom: '6px', marginBottom: '6px' }}>
+                    <span style={{ fontWeight: 800, color: '#0B5A54' }}>Assessment & Plan (A/P)</span>
+                    <span style={{ fontSize: '0.7rem', color: '#64748B' }}>Clinical Formulation</span>
+                  </div>
+                  <p style={{ color: '#334155', margin: '0 0 8px 0', whiteSpace: 'pre-line', lineHeight: 1.5 }}>
+                    {soapData.assessment}
+                  </p>
+                  <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: '6px' }}>
+                    <span style={{ fontWeight: 700, color: '#0F172A', display: 'block', marginBottom: '4px' }}>
+                      Suggested Preliminary Diagnostic Tests:
+                    </span>
+                    <ul style={{ margin: 0, paddingLeft: '18px', color: '#475569' }}>
+                      {soapData.suggested_tests?.map((t, idx) => (
+                        <li key={idx}>{t}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+
+                {soapApproved ? (
+                  <div style={{
+                    padding: '10px 14px',
+                    borderRadius: '12px',
+                    background: '#ECFDF5',
+                    border: '1px solid #A7F3D0',
+                    color: '#065F46',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontWeight: 700
+                  }}>
+                    <UserCheck size={18} color="#059669" />
+                    <span>Approved & Signed by Attending Physician</span>
+                  </div>
+                ) : (
+                  <div style={{
+                    padding: '12px',
+                    borderRadius: '12px',
+                    background: '#F1F5F9',
+                    border: '1px solid #CBD5E1',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                  }}>
+                    <label style={{ fontWeight: 700, color: '#0F172A' }}>Doctor Review Checkpoint (Editable Draft):</label>
+                    <input
+                      type="text"
+                      value={doctorNotes}
+                      onChange={(e) => setDoctorNotes(e.target.value)}
+                      placeholder="Add physician review notes or modifications..."
+                      className="input-carepulse"
+                      style={{ background: '#FFFFFF' }}
+                    />
+                    <button
+                      onClick={handleApproveSoap}
+                      className="btn-primary"
+                      style={{ fontSize: '0.8rem', padding: '8px 14px' }}
+                    >
+                      Physician Review & Approve Note
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#64748B' }}>
+                Start a symptom intake chat to generate a SOAP note.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 4: CARE AGENT */}
+        {activeTab === 'care' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <p style={{ fontSize: '0.75rem', color: '#64748B', margin: 0 }}>
+              Post-discharge medication reminders scheduled based on approved treatment protocols:
+            </p>
+
+            {remindersLoading ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#64748B', fontSize: '0.8rem' }}>
+                Loading care reminders...
+              </div>
+            ) : reminders.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {reminders.map((r) => (
+                  <div
+                    key={r.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '12px 14px',
+                      borderRadius: '14px',
+                      background: '#F8FAFC',
+                      border: '1px solid #E2E8F0'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '10px',
+                        background: '#E3F3F1',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#0B5A54'
+                      }}>
+                        <Pill size={16} />
+                      </div>
+                      <div>
+                        <h6 style={{ fontSize: '0.825rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                          {r.medication_name} ({r.dosage})
+                        </h6>
+                        <p style={{ fontSize: '0.7rem', color: '#64748B', margin: '2px 0 0 0', fontWeight: 500 }}>
+                          {r.frequency} • {r.reminder_time}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleToggleReminder(r.id)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '9999px',
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: r.status === 'active' ? '#D1FAE5' : '#F1F5F9',
+                        color: r.status === 'active' ? '#047857' : '#64748B',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      {r.status === 'active' ? 'Active' : 'Paused'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#64748B', fontSize: '0.8rem' }}>
+                No active medication reminders.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
