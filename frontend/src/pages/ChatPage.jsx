@@ -6,24 +6,17 @@ import { FollowUpChips } from '../components/FollowUpChips';
 import { PatientContextPanel } from '../components/PatientContextPanel';
 import { EmergencyBanner } from '../components/EmergencyBanner';
 import { CitationModal } from '../components/CitationModal';
-import { AgentWorkflowCard } from '../components/AgentWorkflowCard';
+import { DoctorBookingCard } from '../components/DoctorBookingCard';
 import {
   Send,
   Sparkles,
   RefreshCw,
-  Bell,
   Heart,
   Activity,
   Paperclip,
-  ShieldAlert,
   ChevronRight,
-  ClipboardCheck,
-  Calendar,
-  Home,
   User,
-  Plus,
-  Trash2,
-  FileText
+  Plus
 } from 'lucide-react';
 
 export const ChatPage = () => {
@@ -473,13 +466,13 @@ export const ChatPage = () => {
             })
           )}
 
-          {/* 4-Agent Multi-Agent Healthcare Coordination Widget */}
-          {messages.length > 0 && (
-            <AgentWorkflowCard
+          {/* Finalized Disease Triage & Recommended Doctor Booking Card */}
+          {triageAssessment?.is_finalized && triageAssessment?.recommended_doctor && (
+            <DoctorBookingCard
               triageData={triageAssessment}
               conversationId={activeConvId}
               onBookingSuccess={(appt) => {
-                console.log("Appointment locked:", appt);
+                console.log("Appointment booked:", appt);
               }}
             />
           )}
@@ -502,15 +495,14 @@ export const ChatPage = () => {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* FIXED MOBILE INPUT BAR */}
+        {/* CLEAN MOBILE INPUT BAR (STICKY AT BOTTOM) */}
         <div style={{
-          position: 'fixed',
-          bottom: '56px',
-          maxWidth: '520px',
+          position: 'sticky',
+          bottom: 0,
           width: '100%',
-          padding: '10px 14px',
-          background: 'rgba(255, 255, 255, 0.96)',
-          backdropFilter: 'blur(10px)',
+          padding: '12px 16px',
+          background: 'rgba(255, 255, 255, 0.98)',
+          backdropFilter: 'blur(12px)',
           borderTop: '1px solid #E2E8F0',
           zIndex: 30
         }}>
@@ -569,7 +561,7 @@ export const ChatPage = () => {
                 type="text"
                 value={inputContent}
                 onChange={(e) => setInputContent(e.target.value)}
-                placeholder="Ask AI or describe symptoms..."
+                placeholder="Describe your symptoms or reply to questions..."
                 disabled={sending}
                 style={{
                   flex: 1,
@@ -606,57 +598,6 @@ export const ChatPage = () => {
               <Send size={15} />
             </button>
           </form>
-        </div>
-
-        {/* BOTTOM MOBILE NAVIGATION BAR */}
-        <div style={{
-          position: 'fixed',
-          bottom: 0,
-          maxWidth: '520px',
-          width: '100%',
-          height: '56px',
-          background: '#FFFFFF',
-          borderTop: '1px solid #E2E8F0',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          alignItems: 'center',
-          zIndex: 40
-        }}>
-          {[
-            { id: 'health-ai', label: 'Health AI', icon: Heart },
-            { id: 'triage', label: 'Triage AI', icon: Sparkles, action: () => executeSendMessage("Run complete 4-agent triage assessment on my symptoms.") },
-            { id: 'context', label: 'Context', icon: Activity, action: () => setShowContextPanel(!showContextPanel) },
-            { id: 'new', label: 'New Chat', icon: Plus, action: handleStartNewChat }
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isSelected = bottomTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  setBottomTab(tab.id);
-                  if (tab.action) tab.action();
-                }}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '2px',
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: isSelected ? '#0B5A54' : '#94A3B8',
-                  fontSize: '0.675rem',
-                  fontWeight: isSelected ? 800 : 600,
-                  height: '100%'
-                }}
-              >
-                <Icon size={18} color={isSelected ? '#0B5A54' : '#94A3B8'} />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
         </div>
 
       </div>

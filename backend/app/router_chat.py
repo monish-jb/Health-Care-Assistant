@@ -30,6 +30,7 @@ from app.patient_context import (
 from app.followup_agent import evaluate_missing_clinical_context
 from app.confidence import calculate_evidence_confidence
 from app.agents.triage_agent import run_triage_assessment
+from app.agents.booking_agent import get_available_doctors_and_slots
 
 logger = logging.getLogger(__name__)
 
@@ -274,6 +275,34 @@ async def send_message(
     if triage_level == "URGENT_EVALUATION":
         bot_reply_content = URGENT_RESPONSE_HEADER + bot_reply_content
 
+    # Finalize Clinical Disease Triage & Match Specialist Doctor
+    # ONLY finalize when the follow-up agent has NO remaining questions (all context gathered)
+    still_needs_info, _, _ = evaluate_missing_clinical_context(intent, patient_ctx)
+    triage_info = run_triage_assessment(req.content, format_patient_context_summary(patient_ctx))
+    triage_dept = triage_info.get("department", "General Medicine")
+
+    if still_needs_info:
+        # Follow-up agent still has questions → do NOT finalize or recommend doctor yet
+        triage_info["is_finalized"] = False
+        triage_info["recommended_doctor"] = None
+        triage_info["can_auto_book"] = False
+    else:
+        # All clinical context gathered → finalize disease and recommend doctor
+        available_docs = get_available_doctors_and_slots(db, triage_dept)
+        recommended_doc = available_docs[0] if available_docs else None
+        triage_info["is_finalized"] = True
+        triage_info["recommended_doctor"] = recommended_doc
+
+        if triage_info.get("can_auto_book") and recommended_doc:
+            doc_note = (
+                f"\n\n🩺 **Recommended Specialist Consultation:**\n"
+                f"Based on your symptoms, I recommend visiting **{recommended_doc['name']}** "
+                f"({recommended_doc['title']} — Department of {recommended_doc['department']}, "
+                f"{recommended_doc['room_no']}).\n\n"
+                f"*Would you like to book an appointment? Select an available slot below.*"
+            )
+            bot_reply_content += doc_note
+
     # 7b. Complaint / High Priority Auto-Escalation Check
     is_complaint = intent in ["complaint", "billing_dispute"] or any(k in req.content.lower() for k in ["charged", "refund", "complaint", "dispute", "failed and charged"])
     escalated_flag = False
@@ -326,8 +355,6 @@ async def send_message(
     db.commit()
     db.refresh(user_msg)
     db.refresh(bot_msg)
-
-    triage_info = run_triage_assessment(req.content, format_patient_context_summary(patient_ctx))
 
     return ChatMessageResult(
         conversation_id=conv.id,
