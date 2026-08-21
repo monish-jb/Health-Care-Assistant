@@ -37,17 +37,26 @@ def extract_patient_entities(text: str) -> Dict[str, Any]:
     extracted = {}
     text_lower = text.lower()
 
-    # Age extraction
-    age_match = re.search(r'\b(\d{1,3})\s*(years old|year old|yo|y/o|yr old|yrs old)\b', text_lower)
-    if not age_match:
-        age_match = re.search(r'\b(age|aged)\s*(\d{1,3})\b', text_lower)
-    if age_match:
-        try:
-            val = int(age_match.group(1) if age_match.group(1).isdigit() else age_match.group(2))
-            if 0 <= val <= 120:
-                extracted["age"] = val
-        except ValueError:
-            pass
+    # Age extraction: Support option chips and natural text
+    if "child" in text_lower or "<18" in text_lower or "under 18" in text_lower:
+        extracted["age"] = 12
+    elif "adult" in text_lower or "18-64" in text_lower or "18–64" in text_lower or "18–40" in text_lower or "18-40" in text_lower or "41–65" in text_lower or "41-65" in text_lower:
+        extracted["age"] = 35
+    elif "senior" in text_lower or "65+" in text_lower or "over 65" in text_lower or "elderly" in text_lower:
+        extracted["age"] = 70
+    else:
+        age_match = re.search(r'\b(\d{1,3})\s*(years old|year old|yo|y/o|yr old|yrs old|years|yrs)\b', text_lower)
+        if not age_match:
+            age_match = re.search(r'\b(?:i am|im|i\'m|age|aged|am)\s*(\d{1,3})\b', text_lower)
+        if not age_match and re.fullmatch(r'^\s*(\d{1,3})\s*$', text_lower):
+            age_match = re.search(r'(\d{1,3})', text_lower)
+        if age_match:
+            try:
+                val = int(age_match.group(1))
+                if 0 <= val <= 120:
+                    extracted["age"] = val
+            except ValueError:
+                pass
 
     # Sex / Gender extraction
     if re.search(r'\b(female|woman|lady|mother|mom|sister|daughter|she|her)\b', text_lower):
@@ -55,8 +64,8 @@ def extract_patient_entities(text: str) -> Dict[str, Any]:
     elif re.search(r'\b(male|man|gentleman|father|dad|brother|son|he|him)\b', text_lower):
         extracted["sex"] = "Male"
 
-    # Duration extraction: exclude age expressions like "62 years old"
-    all_duration_matches = re.finditer(r'\b(\d+|a|few|several|couple of)\s*(days?|weeks?|months?|years?)\b', text_lower)
+    # Duration extraction: Support range chips (1–3 days, 1-2 weeks, more than 1 month, etc.)
+    all_duration_matches = re.finditer(r'\b(?:more than\s+)?(\d+\s*[\-–—]\s*\d+|\d+|a|few|several|couple of)\s*(days?|weeks?|months?|years?)\b', text_lower)
     for m in all_duration_matches:
         match_str = m.group(0)
         end_idx = m.end()

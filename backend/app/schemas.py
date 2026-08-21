@@ -102,6 +102,7 @@ class ChatMessageResult(BaseModel):
     user_message: MessageResponse
     bot_message: MessageResponse
     patient_context: Optional[PatientContextResponse] = None
+    triage_assessment: Optional[dict] = None
 
 class FeedbackRequest(BaseModel):
     message_id: int

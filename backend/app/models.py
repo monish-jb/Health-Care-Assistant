@@ -119,3 +119,73 @@ class Ticket(Base):
 
     conversation = relationship("Conversation", back_populates="tickets")
     user = relationship("User", back_populates="tickets")
+
+class Doctor(Base):
+    __tablename__ = "doctors"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    department = Column(String, nullable=False)  # "Cardiology", "Endocrinology", "Pulmonology", "Gastroenterology", "General Medicine"
+    title = Column(String, default="Senior Consultant")
+    room_no = Column(String, default="Room 204")
+    experience_years = Column(Integer, default=10)
+    avatar_url = Column(String, nullable=True)
+
+    slots = relationship("DoctorSlot", back_populates="doctor", cascade="all, delete-orphan")
+    appointments = relationship("Appointment", back_populates="doctor")
+
+class DoctorSlot(Base):
+    __tablename__ = "doctor_slots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    doctor_id = Column(Integer, ForeignKey("doctors.id"), nullable=False)
+    slot_time = Column(String, nullable=False)  # e.g., "Tomorrow at 10:00 AM", "Tomorrow at 02:30 PM"
+    is_booked = Column(Boolean, default=False)
+    booked_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    doctor = relationship("Doctor", back_populates="slots")
+
+class Appointment(Base):
+    __tablename__ = "appointments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    doctor_id = Column(Integer, ForeignKey("doctors.id"), nullable=False)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=True)
+    department = Column(String, nullable=False)
+    slot_time = Column(String, nullable=False)
+    status = Column(String, default="pending_confirmation")  # "pending_confirmation" | "confirmed" | "completed" | "cancelled"
+    booking_reference = Column(String, unique=True, index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    doctor = relationship("Doctor", back_populates="appointments")
+    user = relationship("User")
+
+class SOAPReport(Base):
+    __tablename__ = "soap_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    doctor_id = Column(Integer, ForeignKey("doctors.id"), nullable=True)
+    department = Column(String, nullable=False)
+    subjective = Column(Text, nullable=False)  # Patient symptoms, history, timeline
+    objective = Column(Text, nullable=False)   # Vital signs, lab values, observed metrics
+    assessment = Column(Text, nullable=False)  # Differential diagnoses, preliminary rankings
+    plan = Column(Text, nullable=False)        # Treatment options, referral, follow-up
+    suggested_tests = Column(Text, default="[]")  # JSON list string of recommended preliminary tests
+    doctor_reviewed = Column(Boolean, default=False)
+    doctor_notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class CareReminder(Base):
+    __tablename__ = "care_reminders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    medication_name = Column(String, nullable=False)
+    dosage = Column(String, nullable=False)
+    frequency = Column(String, default="Daily")
+    reminder_time = Column(String, default="09:00 AM")
+    status = Column(String, default="active")  # "active" | "paused" | "completed"
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)

@@ -6,6 +6,7 @@ import { FollowUpChips } from '../components/FollowUpChips';
 import { PatientContextPanel } from '../components/PatientContextPanel';
 import { EmergencyBanner } from '../components/EmergencyBanner';
 import { CitationModal } from '../components/CitationModal';
+import { AgentWorkflowCard } from '../components/AgentWorkflowCard';
 import {
   Plus,
   Send,
@@ -32,6 +33,7 @@ export const ChatPage = () => {
   const [activeConv, setActiveConv] = useState(null);
   const [messages, setMessages] = useState([]);
   const [patientContext, setPatientContext] = useState(null);
+  const [triageAssessment, setTriageAssessment] = useState(null);
   const [inputContent, setInputContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -139,8 +141,11 @@ export const ChatPage = () => {
         content: userText
       });
 
-      const { conversation_id, bot_message, patient_context: updatedCtx } = res.data;
+      const { conversation_id, bot_message, patient_context: updatedCtx, triage_assessment: triageInfo } = res.data;
       setPatientContext(updatedCtx);
+      if (triageInfo) {
+        setTriageAssessment(triageInfo);
+      }
 
       if (!activeConvId) {
         setActiveConvId(conversation_id);
@@ -510,6 +515,17 @@ export const ChatPage = () => {
                 </div>
               );
             })
+          )}
+
+          {/* 4-Agent Multi-Agent Healthcare Coordination Widget */}
+          {messages.length > 0 && (
+            <AgentWorkflowCard
+              triageData={triageAssessment}
+              conversationId={activeConvId}
+              onBookingSuccess={(appt) => {
+                console.log("Appointment locked:", appt);
+              }}
+            />
           )}
 
           {sending && (

@@ -29,6 +29,7 @@ from app.patient_context import (
 )
 from app.followup_agent import evaluate_missing_clinical_context
 from app.confidence import calculate_evidence_confidence
+from app.agents.triage_agent import run_triage_assessment
 
 logger = logging.getLogger(__name__)
 
@@ -326,11 +327,14 @@ async def send_message(
     db.refresh(user_msg)
     db.refresh(bot_msg)
 
+    triage_info = run_triage_assessment(req.content, format_patient_context_summary(patient_ctx))
+
     return ChatMessageResult(
         conversation_id=conv.id,
         user_message=build_message_response(user_msg),
         bot_message=build_message_response(bot_msg),
-        patient_context=PatientContextResponse(**format_patient_context_summary(patient_ctx))
+        patient_context=PatientContextResponse(**format_patient_context_summary(patient_ctx)),
+        triage_assessment=triage_info
     )
 
 @router.post("/resolve/{id}")

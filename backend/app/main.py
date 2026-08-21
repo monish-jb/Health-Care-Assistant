@@ -1,16 +1,50 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base, SessionLocal
-from app.models import User
+from app.models import User, Doctor, DoctorSlot
 from app.auth import hash_password
 from app.router_auth import router as auth_router
 from app.router_chat import router as chat_router
 from app.router_kb import router as kb_router
 from app.router_admin import router as admin_router
 from app.router_mobile import router as mobile_router
+from app.router_agents import router as agents_router
 
 # Create database tables automatically on startup
 Base.metadata.create_all(bind=engine)
+
+def seed_doctors(db):
+    INITIAL_DOCTORS = [
+        {"name": "Dr. Sarah Jenkins, MD", "department": "Cardiology", "title": "Senior Cardiologist", "room_no": "Room 302", "experience_years": 14},
+        {"name": "Dr. Marcus Vance, MD", "department": "Endocrinology", "title": "Endocrine Specialist", "room_no": "Room 214", "experience_years": 12},
+        {"name": "Dr. Elena Rostova, MD", "department": "Pulmonology", "title": "Pulmonology Consultant", "room_no": "Room 108", "experience_years": 15},
+        {"name": "Dr. David Patel, MD", "department": "Gastroenterology", "title": "Gastroenterologist", "room_no": "Room 405", "experience_years": 11},
+        {"name": "Dr. Emily Hayes, MD", "department": "General Medicine", "title": "Chief Medical Officer", "room_no": "Room 101", "experience_years": 18}
+    ]
+
+    SLOT_TIMES = [
+        "Tomorrow at 09:30 AM",
+        "Tomorrow at 11:00 AM",
+        "Tomorrow at 02:30 PM",
+        "Tomorrow at 04:00 PM"
+    ]
+
+    for doc_data in INITIAL_DOCTORS:
+        existing = db.query(Doctor).filter(Doctor.name == doc_data["name"]).first()
+        if not existing:
+            new_doc = Doctor(**doc_data)
+            db.add(new_doc)
+            db.commit()
+            db.refresh(new_doc)
+
+            for s_time in SLOT_TIMES:
+                slot = DoctorSlot(
+                    doctor_id=new_doc.id,
+                    slot_time=s_time,
+                    is_booked=False
+                )
+                db.add(slot)
+            db.commit()
 
 def seed_admin():
     db = SessionLocal()
@@ -37,8 +71,9 @@ def seed_admin():
             )
             db.add(new_patient)
 
+        seed_doctors(db)
         db.commit()
-        print("Successfully seeded default admin and patient users.")
+        print("Successfully seeded default admin, patient, and department doctors.")
     except Exception as e:
         print(f"Error seeding users: {e}")
     finally:
@@ -79,6 +114,7 @@ app.include_router(chat_router)
 app.include_router(kb_router)
 app.include_router(admin_router)
 app.include_router(mobile_router)
+app.include_router(agents_router)
 
 @app.get("/")
 def read_root():
