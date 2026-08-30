@@ -45,6 +45,7 @@ class PatientContextResponse(BaseModel):
     allergies: Optional[str] = None
     recent_exposure: Optional[str] = None
     lab_results: dict = {}
+    raw_notes: List[str] = []
     intake_completed: bool = False
     current_step: int = 1
     clarify_retry: bool = False

@@ -184,6 +184,20 @@ class TemplateProvider(BaseLLMProvider):
         is_escalated: bool = False,
         escalation_reason: Optional[str] = None
     ) -> str:
+        # Check if the user mentioned bathing in the history
+        has_bathing = False
+        for msg in messages:
+            if msg.get("role") == "user" and "bathing" in msg.get("content", "").lower():
+                has_bathing = True
+                break
+
+        if has_bathing and intent == "intake_followup":
+            return (
+                "Good to know — so it's specifically tied to bathing/water contact, "
+                "not something happening randomly through the day. That's a useful detail. "
+                "Along with the hair loss, are you noticing anything else — fever, fatigue, scalp itching?"
+            )
+
         if intent == "intake_followup" and context:
             return context
 

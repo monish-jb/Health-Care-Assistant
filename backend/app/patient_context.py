@@ -25,6 +25,7 @@ def get_or_create_patient_context(db: Session, conversation_id: int, user_id: in
             medications="[]",
             known_conditions="[]",
             lab_results="{}",
+            raw_notes="[]",
             intake_completed=False,
             current_step=1,
             clarify_retry=False,
@@ -153,6 +154,15 @@ def update_patient_context_from_message(db: Session, ctx: PatientContext, user_t
     text_clean = user_text.strip()
     text_lower = text_clean.lower()
 
+    # Record old values to detect if extractor successfully populated them
+    old_duration = ctx.duration
+    old_onset = ctx.onset_pattern
+    old_severity = ctx.severity
+    old_allergies = ctx.allergies
+    old_exposure = ctx.recent_exposure
+    old_meds_len = len(json.loads(ctx.medications) if ctx.medications else [])
+    old_conds_len = len(json.loads(ctx.known_conditions) if ctx.known_conditions else [])
+
     entities = extract_patient_entities(user_text, current_step=ctx.current_step)
 
     if "age" in entities and not ctx.age:
@@ -211,7 +221,6 @@ def update_patient_context_from_message(db: Session, ctx: PatientContext, user_t
         if is_ambiguous:
             if not ctx.clarify_retry:
                 ctx.clarify_retry = True
-                # Keep current_step = 1 so evaluate_missing_clinical_context triggers clarify question
             else:
                 ctx.primary_complaint = "unspecified symptoms"
                 ctx.symptoms = json.dumps(["unspecified symptoms"])
@@ -223,7 +232,44 @@ def update_patient_context_from_message(db: Session, ctx: PatientContext, user_t
                 curr_symptoms.append(text_clean)
             ctx.symptoms = json.dumps(curr_symptoms)
             ctx.current_step = 2
+    
+    # Non-Step 1 steps evaluation: check if field updated, else raw note
     elif ctx.current_step >= 2 and ctx.current_step <= 10:
+        field_updated = False
+        step = ctx.current_step
+        
+        if step == 2 and ctx.duration != old_duration:
+            field_updated = True
+        elif step == 3 and ctx.onset_pattern != old_onset:
+            field_updated = True
+        elif step == 5 and ctx.severity != old_severity:
+            field_updated = True
+        elif step == 6 and len(json.loads(ctx.known_conditions) if ctx.known_conditions else []) > old_conds_len:
+            field_updated = True
+        elif step == 7 and len(json.loads(ctx.medications) if ctx.medications else []) > old_meds_len:
+            field_updated = True
+        elif step == 8 and ctx.allergies != old_allergies:
+            field_updated = True
+        elif step == 9 and ctx.recent_exposure != old_exposure:
+            field_updated = True
+        elif step in [4, 10]:
+            field_updated = True
+            
+        if step >= 2 and step <= 9 and not field_updated:
+            field_names = {
+                2: "duration",
+                3: "onset_pattern",
+                5: "severity",
+                6: "known_conditions",
+                7: "medications",
+                8: "allergies",
+                9: "recent_exposure"
+            }
+            f_name = field_names.get(step, "general")
+            raw_list = json.loads(ctx.raw_notes) if ctx.raw_notes else []
+            raw_list.append(f"Unextracted {f_name} detail: {user_text}")
+            ctx.raw_notes = json.dumps(raw_list)
+
         ctx.current_step += 1
 
     db.commit()
@@ -248,6 +294,7 @@ def format_patient_context_summary(ctx: PatientContext) -> Dict[str, Any]:
         "allergies": ctx.allergies,
         "recent_exposure": ctx.recent_exposure,
         "lab_results": json.loads(ctx.lab_results) if ctx.lab_results else {},
+        "raw_notes": json.loads(ctx.raw_notes) if ctx.raw_notes else [],
         "intake_completed": ctx.intake_completed,
         "current_step": ctx.current_step,
         "clarify_retry": ctx.clarify_retry or False,
@@ -286,5 +333,8 @@ def format_patient_context_for_prompt(ctx: PatientContext) -> str:
     if summary["lab_results"]:
         lab_str = ", ".join([f"{k}: {v}" for k, v in summary["lab_results"].items()])
         parts.append(f"- **Recent Lab Results**: {lab_str}")
+    if summary["raw_notes"]:
+        raw_notes_str = "; ".join(summary["raw_notes"])
+        parts.append(f"- **Patient Conversational Notes (unextracted details)**: {raw_notes_str}")
 
     return "\n".join(parts) if parts else "No patient intake history gathered yet."

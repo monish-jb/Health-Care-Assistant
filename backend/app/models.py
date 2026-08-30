@@ -80,6 +80,7 @@ class PatientContext(Base):
     allergies = Column(String, nullable=True)
     recent_exposure = Column(String, nullable=True)
     lab_results = Column(Text, default="{}")  # JSON string object
+    raw_notes = Column(Text, default="[]")  # JSON string array for unextracted context notes
     
     intake_completed = Column(Boolean, default=False)
     current_step = Column(Integer, default=1)

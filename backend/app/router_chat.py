@@ -137,7 +137,10 @@ async def send_message(
 ):
     start_time = time.time()
     
-    # 1. Conversation Setup
+    # 1. Classify Intent early to save message
+    intent, intent_confidence = classify_intent(req.content)
+    
+    # 2. Conversation Setup
     if req.conversation_id:
         conv = db.query(Conversation).filter(
             Conversation.id == req.conversation_id,
@@ -156,26 +159,28 @@ async def send_message(
         db.commit()
         db.refresh(conv)
 
-    # 2. Patient Context Retrieval & Update
+    # 3. Save User Message immediately verbatim BEFORE any LLM call
+    user_msg = Message(
+        conversation_id=conv.id,
+        role="user",
+        content=req.content,
+        intent=intent,
+        intent_confidence=intent_confidence
+    )
+    db.add(user_msg)
+    db.commit()
+    db.refresh(user_msg)
+
+    # 4. Patient Context Retrieval & Update
     patient_ctx = get_or_create_patient_context(db, conv.id, current_user.id)
     patient_ctx = update_patient_context_from_message(db, patient_ctx, req.content)
     context_summary_str = format_patient_context_for_prompt(patient_ctx)
 
-    # 3. Medical Safety & Emergency Triage Evaluation
+    # 5. Medical Safety & Emergency Triage Evaluation
     triage_level, emergency_override = evaluate_medical_triage(req.content)
 
     if triage_level == "EMERGENCY":
         elapsed_ms = int((time.time() - start_time) * 1000)
-        
-        user_msg = Message(
-            conversation_id=conv.id,
-            role="user",
-            content=req.content,
-            intent="emergency_symptoms",
-            intent_confidence=0.99
-        )
-        db.add(user_msg)
-
         bot_msg = Message(
             conversation_id=conv.id,
             role="assistant",
@@ -191,7 +196,6 @@ async def send_message(
         conv.status = "escalated"
         conv.updated_at = datetime.datetime.utcnow()
         db.commit()
-        db.refresh(user_msg)
         db.refresh(bot_msg)
 
         return ChatMessageResult(
@@ -204,21 +208,16 @@ async def send_message(
     # Active Booking Flow State Machine Handler
     if patient_ctx.booking_state and patient_ctx.booking_state != "COMPLETED":
         elapsed_ms = int((time.time() - start_time) * 1000)
-        user_msg = Message(
-            conversation_id=conv.id,
-            role="user",
-            content=req.content,
-            intent="appointment_booking",
-            intent_confidence=0.99
-        )
-        db.add(user_msg)
+        user_msg.intent = "appointment_booking"
+        user_msg.intent_confidence = 0.99
+        db.commit()
         
         reply_content = ""
         next_options = []
         text_lower = req.content.strip().lower()
         
         if patient_ctx.booking_state == "PROMPTED":
-            if any(w in text_lower for w in ["yes", "book", "appointment", "sure", "ok"]):
+            if any(k in text_lower for k in ["yes", "yep", "sure", "book", "appointment", "schedule"]):
                 specialty = map_symptom_to_specialty(patient_ctx.primary_complaint or "issue")
                 docs = db.query(Doctor).filter(Doctor.department == specialty).all()
                 available_slots_list = []
@@ -257,13 +256,13 @@ async def send_message(
                 patient_ctx.booking_state = "SELECTING_SLOT"
             else:
                 patient_ctx.booking_state = "COMPLETED"
-                reply_content = "No problem! Let me know if you need anything else."
+                reply_content = "Alright, let me know if you need help with anything else!"
                 next_options = []
                 
         elif patient_ctx.booking_state == "SELECTING_SLOT":
-            if "skip" in text_lower or "cancel" in text_lower:
+            if "skip" in text_lower:
                 patient_ctx.booking_state = "COMPLETED"
-                reply_content = "Booking skipped. Let me know if you need any other help!"
+                reply_content = "No problem! We've skipped the booking. Let me know if you need other information."
                 next_options = []
             else:
                 matched_doc = None
@@ -283,8 +282,9 @@ async def send_message(
                             matched_slot = s
                             break
                             
-                if not matched_slot and "–" in req.content:
-                    parts = req.content.split("–")
+                if not matched_slot and ("–" in req.content or "-" in req.content or "—" in req.content):
+                    content_normalized = req.content.replace("—", "–").replace("-", "–")
+                    parts = content_normalized.split("–")
                     if len(parts) == 2:
                         doc_part = parts[0].strip().lower()
                         slot_part = parts[1].strip().lower()
@@ -303,10 +303,13 @@ async def send_message(
                     patient_ctx.selected_doctor_id = matched_doc.id
                     patient_ctx.selected_slot_time = matched_slot.slot_time
                     patient_ctx.booking_state = "CONFIRMING"
-                    reply_content = f"You've selected Dr. **{matched_doc.name}** ({matched_doc.department}) at **{matched_slot.slot_time}**. Shall I confirm this booking?"
-                    next_options = ["Yes, confirm booking", "No, cancel"]
+                    reply_content = (
+                        f"You've selected **{matched_doc.name}** ({matched_doc.department}) "
+                        f"at **{matched_slot.slot_time}**. Shall I confirm this booking?"
+                    )
+                    next_options = ["Yes, confirm booking", "Cancel"]
                 else:
-                    reply_content = "I couldn't match your selection. Please select one of the available slots or type 'skip' to continue:"
+                    reply_content = "I didn't quite catch that choice. Please select one of the slots below or type 'skip':"
                     specialty = map_symptom_to_specialty(patient_ctx.primary_complaint or "issue")
                     docs = db.query(Doctor).filter(Doctor.department == specialty).all()
                     available_slots_list = []
@@ -322,11 +325,10 @@ async def send_message(
                             slots = db.query(DoctorSlot).filter(DoctorSlot.doctor_id == doc.id, DoctorSlot.is_booked == False).all()
                             for s in slots:
                                 available_slots_list.append((doc, s))
-                    next_options = [f"{doc.name} – {slot.slot_time}" for doc, slot in available_slots_list[:4]]
-                    next_options.append("skip")
+                    next_options = [f"{doc.name} – {slot.slot_time}" for doc, slot in available_slots_list[:4]] + ["skip"]
                     
         elif patient_ctx.booking_state == "CONFIRMING":
-            if any(w in text_lower for w in ["yes", "confirm", "sure", "ok"]):
+            if any(k in text_lower for k in ["yes", "confirm", "sure", "ok"]):
                 slot = db.query(DoctorSlot).filter(
                     DoctorSlot.doctor_id == patient_ctx.selected_doctor_id,
                     DoctorSlot.slot_time == patient_ctx.selected_slot_time,
@@ -341,18 +343,22 @@ async def send_message(
                     apt_id = f"APT-{random.randint(10000, 99999)}"
                     doc = db.query(Doctor).filter(Doctor.id == patient_ctx.selected_doctor_id).first()
                     
-                    apt = Appointment(
+                    new_appt = Appointment(
                         user_id=current_user.id,
-                        doctor_id=doc.id,
+                        doctor_id=patient_ctx.selected_doctor_id,
                         conversation_id=conv.id,
-                        department=doc.department,
+                        department=doc.department if doc else "General Medicine",
                         slot_time=patient_ctx.selected_slot_time,
                         status="confirmed",
                         booking_reference=apt_id
                     )
-                    db.add(apt)
+                    db.add(new_appt)
+                    
+                    reply_content = (
+                        f"🎉 **Booking confirmed!** Your appointment with **{doc.name if doc else 'Doctor'}** "
+                        f"at **{patient_ctx.selected_slot_time}** is secured. Appointment ID: **{apt_id}**."
+                    )
                     patient_ctx.booking_state = "COMPLETED"
-                    reply_content = f"🎉 **Booking confirmed!** Your appointment with **{doc.name}** at **{patient_ctx.selected_slot_time}** is secured. Appointment ID: **{apt_id}**."
                 else:
                     patient_ctx.booking_state = "COMPLETED"
                     reply_content = "Sorry, that slot was just taken by another patient. Let me know if you want to search again."
@@ -375,7 +381,6 @@ async def send_message(
         db.add(bot_msg)
         conv.updated_at = datetime.datetime.utcnow()
         db.commit()
-        db.refresh(user_msg)
         db.refresh(bot_msg)
         
         return ChatMessageResult(
@@ -385,25 +390,33 @@ async def send_message(
             patient_context=PatientContextResponse(**format_patient_context_summary(patient_ctx))
         )
 
-    # 4. Healthcare Intent Classification
-    intent, intent_confidence = classify_intent(req.content)
+    # 6. Evaluate clinical missing context
+    missing_fields, has_emergency = evaluate_missing_clinical_context(intent, patient_ctx)
 
-    # 5. Follow-Up Question Agent Evaluation
-    should_followup, followup_question, option_chips = evaluate_missing_clinical_context(intent, patient_ctx)
-
-    if should_followup:
+    if missing_fields:
         elapsed_ms = int((time.time() - start_time) * 1000)
         
-        user_msg = Message(
-            conversation_id=conv.id,
-            role="user",
-            content=req.content,
-            intent=intent,
-            intent_confidence=intent_confidence
-        )
-        db.add(user_msg)
+        active_field = missing_fields[0]
+        option_chips = []
+        if active_field == "duration":
+            option_chips = ["Just started today", "1–3 days", "About a week", "More than a month"]
+        elif active_field == "onset_pattern":
+            option_chips = ["Sudden & Constant", "Sudden & Comes and goes", "Gradual & Constant", "Gradual & Comes and goes"]
+        elif active_field == "associated_symptoms":
+            option_chips = ["Fever or chills", "Nausea or vomiting", "Cough or sore throat", "Dizziness or headache", "Body aches", "No other symptoms"]
+        elif active_field == "severity":
+            option_chips = ["Mild (1-3)", "Moderate (4-6)", "Severe (7-9)", "Unbearable (10)"]
+        elif active_field == "known_conditions":
+            option_chips = ["High blood pressure", "Diabetes", "Asthma / Respiratory", "Thyroid disorder", "None of these"]
+        elif active_field == "medications":
+            option_chips = ["Pain relievers (Ibuprofen/Paracetamol)", "Yes, prescription meds", "Yes, other supplements", "No medications"]
+        elif active_field == "allergies":
+            option_chips = ["Penicillin / Antibiotics", "NSAIDs / Aspirin", "Food allergies", "No known allergies"]
+        elif active_field == "recent_exposure":
+            option_chips = ["Contact with sick person", "Recent travel", "Dietary change / new food", "No recent triggers"]
+        elif active_field == "safety_red_flags":
+            option_chips = ["Yes, experiencing red flags", "No, none of these"]
 
-        provider = get_llm_provider()
         past_messages = (
             db.query(Message)
             .filter(Message.conversation_id == conv.id)
@@ -411,25 +424,60 @@ async def send_message(
             .all()
         )
         history_payload = [{"role": m.role, "content": m.content} for m in past_messages]
-        instruction = (
-            f"\n\n[INSTRUCTION: React to the user's last answer warmly and specifically, in your own words. "
-            f"Do NOT use generic filler like 'Thank you for providing that detail'. "
-            f"Then, naturally transition to ask this question: '{followup_question}'. "
-            f"Ask ONLY this one question. Do NOT label it 'Step N' or expose internal flow. Keep it short and conversational.]"
-        )
-        history_payload.append({"role": "user", "content": f"{req.content}{instruction}"})
         
+        system_instruction = (
+            "You are Med AI, an attentive clinician chatting with a patient. "
+            "Your goal is to gather the patient's medical intake information naturally and conversationally. "
+            "Never sound like a form, checklist, or survey bot. Ask ONE question at a time.\n\n"
+            "Here is the structured Patient Context collected so far:\n"
+            f"{context_summary_str}\n\n"
+            "Here are the clinically relevant fields still missing for this patient:\n"
+            f"{', '.join(missing_fields)}\n\n"
+            "Rules:\n"
+            "1. BEFORE asking your next question, you MUST first respond to the literal content of the user's previous message — even if it didn't cleanly match an expected category, option chip, or field type.\n"
+            "2. If the user's message doesn't fit a structured field (e.g. they describe a trigger or detail instead of picking a clean category), acknowledge the specific detail they gave in your own words before moving on. For example, if they mention a trigger detail or specific circumstances, reference it warmly.\n"
+            "3. Ask ONLY one question per turn to gather one of the missing fields. Do NOT ask about anything already present in the context.\n"
+            "4. Keep the question short, simple, and in plain language (avoid medical jargon).\n"
+            "5. Never label your question (e.g. 'Step N') or expose internal flow to the user.\n"
+            "6. Output ONLY the response/question to the user. No headers, steps, labels, or additional explanations."
+        )
+
+        history_payload.insert(0, {"role": "system", "content": system_instruction})
+
+        # Step 6: Temporary debug log printing the full messages payload
+        print(f"PAYLOAD MESSAGES:\n{json.dumps(history_payload, indent=2)}")
+        print(f"SYSTEM INSTRUCTION:\n{system_instruction}")
+
+        fallback_questions = {
+            "primary_complaint": (
+                "No worries — could you describe what you're experiencing in your own words? For example: pain, itching, hair thinning, fatigue, etc."
+                if patient_ctx.clarify_retry else
+                "What's the main health issue or primary symptom you're experiencing today?"
+            ),
+            "duration": f"How many days or weeks has this {patient_ctx.primary_complaint or 'symptom'} been going on?",
+            "onset_pattern": f"Did this start suddenly or gradually? Is it constant or does it come and go?",
+            "associated_symptoms": f"Are you experiencing any other symptoms along with this — e.g. fever, fatigue, pain, nausea, cough?",
+            "severity": f"On a scale of 1–10, how severe would you say this is?",
+            "known_conditions": f"Do you have any pre-existing medical conditions (such as diabetes, BP, asthma, thyroid) that relate to this?",
+            "medications": f"Are you currently taking any prescription medications or supplements to manage this?",
+            "allergies": "Do you have any known allergies to drugs, food, or environmental triggers?",
+            "recent_exposure": f"Have you had any recent travel, contact with a sick person, new foods, or environmental triggers related to this?",
+            "safety_red_flags": f"Red Flag Safety Check: Along with the symptoms, are you experiencing difficulty breathing, chest pain, severe bleeding, confusion, or fainting?"
+        }
+        fallback_q = fallback_questions.get(active_field, "Could you tell me more about your symptoms?")
+
+        provider = get_llm_provider()
         try:
             full_followup = await provider.generate_response(
                 messages=history_payload,
-                context=followup_question,
+                context=fallback_q,
                 intent="intake_followup"
             )
             if not full_followup or len(full_followup.strip()) < 5:
-                full_followup = followup_question
+                full_followup = fallback_q
         except Exception as e:
             logger.error(f"Failed to generate conversational follow-up: {e}")
-            full_followup = followup_question
+            full_followup = fallback_q
 
         bot_msg = Message(
             conversation_id=conv.id,
@@ -446,7 +494,6 @@ async def send_message(
         db.add(bot_msg)
         conv.updated_at = datetime.datetime.utcnow()
         db.commit()
-        db.refresh(user_msg)
         db.refresh(bot_msg)
 
         return ChatMessageResult(
@@ -456,7 +503,7 @@ async def send_message(
             patient_context=PatientContextResponse(**format_patient_context_summary(patient_ctx))
         )
 
-    # 6. RAG Retrieval & Query Rewriting
+    # 7. RAG Retrieval & Query Rewriting (Intake Complete)
     kb_doc_count = db.query(KBDocument).count()
     rewritten_query = rewrite_query_for_rag(req.content, context_summary_str)
     rag_results, top_rag_score = rag_engine.search(db, rewritten_query, top_k=4) if kb_doc_count > 0 else ([], 0.0)
@@ -478,10 +525,10 @@ async def send_message(
             formatted_chunks.append(f"[{idx}] {r['document_name']} ({r['source_type']} - Section: {r['section_name']}):\n{r['content']}")
         context_str = "\n\n".join(formatted_chunks)
 
-    # 7. Calculate Evidence Confidence
+    # 8. Calculate Evidence Confidence
     conf_level, conf_details = calculate_evidence_confidence(rag_results, req.content, kb_doc_count)
 
-    # 8. Retrieve Conversation History & Call LLM Evidence Synthesis
+    # 9. Retrieve Conversation History & Call LLM Evidence Synthesis
     past_messages = (
         db.query(Message)
         .filter(Message.conversation_id == conv.id)
@@ -501,25 +548,13 @@ async def send_message(
     if triage_level == "URGENT_EVALUATION":
         bot_reply_content = URGENT_RESPONSE_HEADER + bot_reply_content
 
-    # Finalize Clinical Disease Triage & Match Specialist Doctor
-    # ONLY finalize when the follow-up agent has NO remaining questions (all context gathered)
-    still_needs_info, _, _ = evaluate_missing_clinical_context(intent, patient_ctx)
     triage_info = run_triage_assessment(req.content, format_patient_context_summary(patient_ctx))
-    triage_dept = triage_info.get("department", "General Medicine")
+    triage_info["is_finalized"] = True
+    
+    bot_reply_content += "\n\nWould you like me to book an appointment with a specialist for this?"
+    patient_ctx.booking_state = "PROMPTED"
 
-    if still_needs_info:
-        # Follow-up agent still has questions → do NOT finalize or recommend doctor yet
-        triage_info["is_finalized"] = False
-        triage_info["recommended_doctor"] = None
-        triage_info["can_auto_book"] = False
-    else:
-        # All clinical context gathered -> finalize disease and recommend doctor
-        triage_info["is_finalized"] = True
-        
-        bot_reply_content += "\n\nWould you like me to book an appointment with a specialist for this?"
-        patient_ctx.booking_state = "PROMPTED"
-
-    # 7b. Complaint / High Priority Auto-Escalation Check
+    # Auto-Escalation Check
     is_complaint = intent in ["complaint", "billing_dispute"] or any(k in req.content.lower() for k in ["charged", "refund", "complaint", "dispute", "failed and charged"])
     escalated_flag = False
     escalation_reason_str = None
@@ -538,16 +573,6 @@ async def send_message(
         conv.status = "escalated"
 
     elapsed_ms = int((time.time() - start_time) * 1000)
-
-    # 9. Save Messages to DB
-    user_msg = Message(
-        conversation_id=conv.id,
-        role="user",
-        content=req.content,
-        intent=intent,
-        intent_confidence=intent_confidence
-    )
-    db.add(user_msg)
 
     bot_msg = Message(
         conversation_id=conv.id,
@@ -570,7 +595,6 @@ async def send_message(
 
     conv.updated_at = datetime.datetime.utcnow()
     db.commit()
-    db.refresh(user_msg)
     db.refresh(bot_msg)
 
     return ChatMessageResult(
