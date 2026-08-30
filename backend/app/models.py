@@ -70,11 +70,23 @@ class PatientContext(Base):
     
     age = Column(Integer, nullable=True)
     sex = Column(String, nullable=True)
+    primary_complaint = Column(String, nullable=True)
     symptoms = Column(Text, default="[]")  # JSON string array
     duration = Column(String, nullable=True)
+    onset_pattern = Column(String, nullable=True)
+    severity = Column(String, nullable=True)
     medications = Column(Text, default="[]")  # JSON string array
     known_conditions = Column(Text, default="[]")  # JSON string array
+    allergies = Column(String, nullable=True)
+    recent_exposure = Column(String, nullable=True)
     lab_results = Column(Text, default="{}")  # JSON string object
+    
+    intake_completed = Column(Boolean, default=False)
+    current_step = Column(Integer, default=1)
+    clarify_retry = Column(Boolean, default=False)
+    booking_state = Column(String, nullable=True)  # "PROMPTED" | "SELECTING_SLOT" | "CONFIRMING" | "COMPLETED"
+    selected_doctor_id = Column(Integer, nullable=True)
+    selected_slot_time = Column(String, nullable=True)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     conversation = relationship("Conversation", back_populates="patient_context")

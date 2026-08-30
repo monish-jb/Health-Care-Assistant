@@ -11,8 +11,20 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const fetchMe = async () => {
       if (!token) {
-        setUser(null);
-        setLoading(false);
+        try {
+          const res = await client.post('/auth/login', {
+            email: 'patient@healthnavigator.com',
+            password: 'PatientPassword123!'
+          });
+          const { access_token, user: userData } = res.data;
+          localStorage.setItem('token', access_token);
+          setToken(access_token);
+          setUser(userData);
+        } catch (err) {
+          console.error("Auto-login failed:", err);
+          setUser(null);
+          setLoading(false);
+        }
         return;
       }
       try {

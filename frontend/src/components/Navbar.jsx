@@ -10,7 +10,8 @@ export const Navbar = () => {
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    navigate('/chat');
+    window.location.reload();
   };
 
   if (!user) return null;
@@ -124,44 +125,42 @@ export const Navbar = () => {
         )}
       </div>
 
-      {/* User Info & Logout */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          background: 'rgba(30, 41, 59, 0.6)',
-          padding: '6px 12px',
-          borderRadius: '20px',
-          border: '1px solid rgba(255, 255, 255, 0.08)'
-        }}>
-          {user.role === 'admin' ? (
-            <ShieldCheck size={16} color="#10b981" />
-          ) : (
-            <User size={16} color="#06b6d4" />
-          )}
-          <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#e2e8f0' }}>{user.email}</span>
-        </div>
-
-        <button
-          onClick={handleLogout}
-          title="Sign out"
-          style={{
-            background: 'rgba(255, 255, 255, 0.05)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            color: '#94a3b8',
-            padding: '8px',
-            borderRadius: '8px',
-            cursor: 'pointer',
+      {/* User Info & Logout (Only visible for Admins) */}
+      {isAdmin && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div style={{
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.2s'
-          }}
-        >
-          <LogOut size={18} />
-        </button>
-      </div>
+            gap: '8px',
+            background: 'rgba(30, 41, 59, 0.6)',
+            padding: '6px 12px',
+            borderRadius: '20px',
+            border: '1px solid rgba(255, 255, 255, 0.08)'
+          }}>
+            <ShieldCheck size={16} color="#10b981" />
+            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#e2e8f0' }}>{user.email}</span>
+          </div>
+
+          <button
+            onClick={handleLogout}
+            title="Sign out"
+            style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              color: '#94a3b8',
+              padding: '8px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.2s'
+            }}
+          >
+            <LogOut size={18} />
+          </button>
+        </div>
+      )}
     </nav>
   );
 };

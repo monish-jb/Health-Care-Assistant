@@ -35,11 +35,22 @@ class PatientContextResponse(BaseModel):
     user_id: int
     age: Optional[int] = None
     sex: Optional[str] = None
+    primary_complaint: Optional[str] = None
     symptoms: List[str] = []
     duration: Optional[str] = None
+    onset_pattern: Optional[str] = None
+    severity: Optional[str] = None
     medications: List[str] = []
     known_conditions: List[str] = []
+    allergies: Optional[str] = None
+    recent_exposure: Optional[str] = None
     lab_results: dict = {}
+    intake_completed: bool = False
+    current_step: int = 1
+    clarify_retry: bool = False
+    booking_state: Optional[str] = None
+    selected_doctor_id: Optional[int] = None
+    selected_slot_time: Optional[str] = None
     updated_at: datetime.datetime
 
     class Config:

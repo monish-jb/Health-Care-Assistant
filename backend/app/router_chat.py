@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import User, Conversation, Message, Ticket, KBDocument, KBChunk, PatientContext
+from app.models import User, Conversation, Message, Ticket, KBDocument, KBChunk, PatientContext, Doctor, DoctorSlot, Appointment
 from app.schemas import (
     ConversationResponse,
     MessageCreateRequest,
@@ -35,6 +35,20 @@ from app.agents.booking_agent import get_available_doctors_and_slots
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
+
+def map_symptom_to_specialty(complaint: str) -> str:
+    c = str(complaint).lower()
+    if any(w in c for w in ["hair", "skin", "rash", "dermatology"]):
+        return "Dermatology"
+    if any(w in c for w in ["chest", "heart", "cardio", "bp", "blood pressure", "hypertension"]):
+        return "Cardiology"
+    if any(w in c for w in ["stomach", "abdominal", "belly", "abdomen", "nausea", "vomiting", "gerd", "gastro"]):
+        return "Gastroenterology"
+    if any(w in c for w in ["cough", "breath", "asthma", "lung", "pulmo"]):
+        return "Pulmonology"
+    if any(w in c for w in ["thyroid", "diabetes", "tsh", "hba1c", "endocrine"]):
+        return "Endocrinology"
+    return "General Medicine"
 
 def parse_message_json(val: Optional[str]):
     if not val:
@@ -187,6 +201,190 @@ async def send_message(
             patient_context=PatientContextResponse(**format_patient_context_summary(patient_ctx))
         )
 
+    # Active Booking Flow State Machine Handler
+    if patient_ctx.booking_state and patient_ctx.booking_state != "COMPLETED":
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        user_msg = Message(
+            conversation_id=conv.id,
+            role="user",
+            content=req.content,
+            intent="appointment_booking",
+            intent_confidence=0.99
+        )
+        db.add(user_msg)
+        
+        reply_content = ""
+        next_options = []
+        text_lower = req.content.strip().lower()
+        
+        if patient_ctx.booking_state == "PROMPTED":
+            if any(w in text_lower for w in ["yes", "book", "appointment", "sure", "ok"]):
+                specialty = map_symptom_to_specialty(patient_ctx.primary_complaint or "issue")
+                docs = db.query(Doctor).filter(Doctor.department == specialty).all()
+                available_slots_list = []
+                for doc in docs:
+                    slots = db.query(DoctorSlot).filter(DoctorSlot.doctor_id == doc.id, DoctorSlot.is_booked == False).all()
+                    for s in slots:
+                        available_slots_list.append((doc, s))
+                
+                is_alternative = False
+                if not available_slots_list:
+                    is_alternative = True
+                    alt_docs = db.query(Doctor).filter(Doctor.department == "General Medicine").all()
+                    if not alt_docs:
+                        alt_docs = db.query(Doctor).all()
+                    for doc in alt_docs:
+                        slots = db.query(DoctorSlot).filter(DoctorSlot.doctor_id == doc.id, DoctorSlot.is_booked == False).all()
+                        for s in slots:
+                            available_slots_list.append((doc, s))
+                
+                lines = []
+                lines.append(f"**Recommended Specialist:** {specialty}")
+                if not is_alternative:
+                    lines.append("**Available Doctors:**")
+                    for doc, slot in available_slots_list[:4]:
+                        lines.append(f"- {doc.name} — {doc.department} — {slot.slot_time}")
+                else:
+                    lines.append("**Or, if none available in that specialty:**")
+                    for doc, slot in available_slots_list[:4]:
+                        lines.append(f"- {doc.name} — {doc.department} (Alternative) — {slot.slot_time}")
+                
+                lines.append("\nPlease select a doctor to proceed with booking, or type 'skip' to continue without booking.")
+                reply_content = "\n".join(lines)
+                
+                next_options = [f"{doc.name} – {slot.slot_time}" for doc, slot in available_slots_list[:4]]
+                next_options.append("skip")
+                patient_ctx.booking_state = "SELECTING_SLOT"
+            else:
+                patient_ctx.booking_state = "COMPLETED"
+                reply_content = "No problem! Let me know if you need anything else."
+                next_options = []
+                
+        elif patient_ctx.booking_state == "SELECTING_SLOT":
+            if "skip" in text_lower or "cancel" in text_lower:
+                patient_ctx.booking_state = "COMPLETED"
+                reply_content = "Booking skipped. Let me know if you need any other help!"
+                next_options = []
+            else:
+                matched_doc = None
+                matched_slot = None
+                all_docs = db.query(Doctor).all()
+                
+                for doc in all_docs:
+                    name_clean = doc.name.replace(", MD", "").lower()
+                    if name_clean in text_lower or doc.name.lower() in text_lower:
+                        matched_doc = doc
+                        break
+                        
+                if matched_doc:
+                    slots = db.query(DoctorSlot).filter(DoctorSlot.doctor_id == matched_doc.id, DoctorSlot.is_booked == False).all()
+                    for s in slots:
+                        if s.slot_time.lower() in text_lower or s.slot_time.replace("tomorrow at ", "").lower() in text_lower:
+                            matched_slot = s
+                            break
+                            
+                if not matched_slot and "–" in req.content:
+                    parts = req.content.split("–")
+                    if len(parts) == 2:
+                        doc_part = parts[0].strip().lower()
+                        slot_part = parts[1].strip().lower()
+                        for doc in all_docs:
+                            if doc.name.lower() in doc_part or doc_part in doc.name.lower():
+                                matched_doc = doc
+                                break
+                        if matched_doc:
+                            slots = db.query(DoctorSlot).filter(DoctorSlot.doctor_id == matched_doc.id, DoctorSlot.is_booked == False).all()
+                            for s in slots:
+                                if slot_part in s.slot_time.lower():
+                                    matched_slot = s
+                                    break
+
+                if matched_doc and matched_slot:
+                    patient_ctx.selected_doctor_id = matched_doc.id
+                    patient_ctx.selected_slot_time = matched_slot.slot_time
+                    patient_ctx.booking_state = "CONFIRMING"
+                    reply_content = f"You've selected Dr. **{matched_doc.name}** ({matched_doc.department}) at **{matched_slot.slot_time}**. Shall I confirm this booking?"
+                    next_options = ["Yes, confirm booking", "No, cancel"]
+                else:
+                    reply_content = "I couldn't match your selection. Please select one of the available slots or type 'skip' to continue:"
+                    specialty = map_symptom_to_specialty(patient_ctx.primary_complaint or "issue")
+                    docs = db.query(Doctor).filter(Doctor.department == specialty).all()
+                    available_slots_list = []
+                    for doc in docs:
+                        slots = db.query(DoctorSlot).filter(DoctorSlot.doctor_id == doc.id, DoctorSlot.is_booked == False).all()
+                        for s in slots:
+                            available_slots_list.append((doc, s))
+                    if not available_slots_list:
+                        alt_docs = db.query(Doctor).filter(Doctor.department == "General Medicine").all()
+                        if not alt_docs:
+                            alt_docs = db.query(Doctor).all()
+                        for doc in alt_docs:
+                            slots = db.query(DoctorSlot).filter(DoctorSlot.doctor_id == doc.id, DoctorSlot.is_booked == False).all()
+                            for s in slots:
+                                available_slots_list.append((doc, s))
+                    next_options = [f"{doc.name} – {slot.slot_time}" for doc, slot in available_slots_list[:4]]
+                    next_options.append("skip")
+                    
+        elif patient_ctx.booking_state == "CONFIRMING":
+            if any(w in text_lower for w in ["yes", "confirm", "sure", "ok"]):
+                slot = db.query(DoctorSlot).filter(
+                    DoctorSlot.doctor_id == patient_ctx.selected_doctor_id,
+                    DoctorSlot.slot_time == patient_ctx.selected_slot_time,
+                    DoctorSlot.is_booked == False
+                ).first()
+                
+                if slot:
+                    slot.is_booked = True
+                    slot.booked_by_user_id = current_user.id
+                    
+                    import random
+                    apt_id = f"APT-{random.randint(10000, 99999)}"
+                    doc = db.query(Doctor).filter(Doctor.id == patient_ctx.selected_doctor_id).first()
+                    
+                    apt = Appointment(
+                        user_id=current_user.id,
+                        doctor_id=doc.id,
+                        conversation_id=conv.id,
+                        department=doc.department,
+                        slot_time=patient_ctx.selected_slot_time,
+                        status="confirmed",
+                        booking_reference=apt_id
+                    )
+                    db.add(apt)
+                    patient_ctx.booking_state = "COMPLETED"
+                    reply_content = f"🎉 **Booking confirmed!** Your appointment with **{doc.name}** at **{patient_ctx.selected_slot_time}** is secured. Appointment ID: **{apt_id}**."
+                else:
+                    patient_ctx.booking_state = "COMPLETED"
+                    reply_content = "Sorry, that slot was just taken by another patient. Let me know if you want to search again."
+            else:
+                patient_ctx.booking_state = "COMPLETED"
+                reply_content = "Booking cancelled. Let me know how else I can help!"
+            next_options = []
+            
+        bot_msg = Message(
+            conversation_id=conv.id,
+            role="assistant",
+            content=reply_content,
+            intent="appointment_booking",
+            intent_confidence=0.99,
+            triage_level=triage_level,
+            followup_options=json.dumps(next_options) if next_options else None,
+            confidence_level="HIGH",
+            response_time_ms=elapsed_ms
+        )
+        db.add(bot_msg)
+        conv.updated_at = datetime.datetime.utcnow()
+        db.commit()
+        db.refresh(user_msg)
+        db.refresh(bot_msg)
+        
+        return ChatMessageResult(
+            conversation_id=conv.id,
+            user_message=build_message_response(user_msg),
+            bot_message=build_message_response(bot_msg),
+            patient_context=PatientContextResponse(**format_patient_context_summary(patient_ctx))
+        )
+
     # 4. Healthcare Intent Classification
     intent, intent_confidence = classify_intent(req.content)
 
@@ -205,16 +403,44 @@ async def send_message(
         )
         db.add(user_msg)
 
+        provider = get_llm_provider()
+        past_messages = (
+            db.query(Message)
+            .filter(Message.conversation_id == conv.id)
+            .order_by(Message.created_at.asc())
+            .all()
+        )
+        history_payload = [{"role": m.role, "content": m.content} for m in past_messages]
+        instruction = (
+            f"\n\n[INSTRUCTION: React to the user's last answer warmly and specifically, in your own words. "
+            f"Do NOT use generic filler like 'Thank you for providing that detail'. "
+            f"Then, naturally transition to ask this question: '{followup_question}'. "
+            f"Ask ONLY this one question. Do NOT label it 'Step N' or expose internal flow. Keep it short and conversational.]"
+        )
+        history_payload.append({"role": "user", "content": f"{req.content}{instruction}"})
+        
+        try:
+            full_followup = await provider.generate_response(
+                messages=history_payload,
+                context=followup_question,
+                intent="intake_followup"
+            )
+            if not full_followup or len(full_followup.strip()) < 5:
+                full_followup = followup_question
+        except Exception as e:
+            logger.error(f"Failed to generate conversational follow-up: {e}")
+            full_followup = followup_question
+
         bot_msg = Message(
             conversation_id=conv.id,
             role="assistant",
-            content=followup_question,
+            content=full_followup,
             intent=intent,
             intent_confidence=intent_confidence,
             triage_level=triage_level,
             followup_options=json.dumps(option_chips) if option_chips else None,
             confidence_level="MEDIUM",
-            confidence_details=json.dumps({"explanation": "Gathering patient history details."}),
+            confidence_details=json.dumps({"explanation": "Gathering patient intake history."}),
             response_time_ms=elapsed_ms
         )
         db.add(bot_msg)
@@ -287,21 +513,11 @@ async def send_message(
         triage_info["recommended_doctor"] = None
         triage_info["can_auto_book"] = False
     else:
-        # All clinical context gathered → finalize disease and recommend doctor
-        available_docs = get_available_doctors_and_slots(db, triage_dept)
-        recommended_doc = available_docs[0] if available_docs else None
+        # All clinical context gathered -> finalize disease and recommend doctor
         triage_info["is_finalized"] = True
-        triage_info["recommended_doctor"] = recommended_doc
-
-        if triage_info.get("can_auto_book") and recommended_doc:
-            doc_note = (
-                f"\n\n🩺 **Recommended Specialist Consultation:**\n"
-                f"Based on your symptoms, I recommend visiting **{recommended_doc['name']}** "
-                f"({recommended_doc['title']} — Department of {recommended_doc['department']}, "
-                f"{recommended_doc['room_no']}).\n\n"
-                f"*Would you like to book an appointment? Select an available slot below.*"
-            )
-            bot_reply_content += doc_note
+        
+        bot_reply_content += "\n\nWould you like me to book an appointment with a specialist for this?"
+        patient_ctx.booking_state = "PROMPTED"
 
     # 7b. Complaint / High Priority Auto-Escalation Check
     is_complaint = intent in ["complaint", "billing_dispute"] or any(k in req.content.lower() for k in ["charged", "refund", "complaint", "dispute", "failed and charged"])
@@ -344,6 +560,7 @@ async def send_message(
         triage_level=triage_level,
         escalated=escalated_flag,
         escalation_reason=escalation_reason_str,
+        followup_options=json.dumps(["Yes, book appointment", "No, thanks"]) if patient_ctx.booking_state == "PROMPTED" else None,
         confidence_level=conf_level,
         confidence_details=json.dumps(conf_details),
         citations=json.dumps(citations_list) if citations_list else None,

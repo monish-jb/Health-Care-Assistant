@@ -1,111 +1,197 @@
 """
-Follow-Up Question & Interactive Option Chip Agent for Healthcare Knowledge Navigator.
-Determines missing clinical information and generates targeted follow-up questions and quick-response chips.
+Medical Intake Assistant Agent for Healthcare Knowledge Navigator.
+Executes a structured, dynamic step-by-step intake conversation tailored to the specific disease or symptom.
+Asks ONE question at a time with clear, plain-language option chips.
 """
 
 from typing import List, Tuple, Optional, Dict, Any
 from app.models import PatientContext
 from app.patient_context import format_patient_context_summary
 
-CLINICAL_FOLLOWUP_MATRIX = {
-    "fatigue": [
-        {
-            "condition": lambda ctx: not ctx.get("duration"),
-            "question": "How long have you or your relative been experiencing this fatigue?",
-            "options": ["1 week", "1 month", "3+ months", "Just a few days"]
-        },
-        {
-            "condition": lambda ctx: not any(s in ctx.get("symptoms", []) for s in ["fever", "weight loss", "shortness of breath", "dizziness"]),
-            "question": "Are there any accompanying symptoms present?",
-            "options": ["Fever or night sweats", "Unexplained weight loss", "Shortness of breath", "Dizziness or weakness", "None of these"]
-        },
-        {
-            "condition": lambda ctx: not ctx.get("age"),
-            "question": "Could you share the approximate age of the person experiencing fatigue?",
-            "options": ["Under 18", "18–40", "41–65", "Over 65"]
+DISEASE_TAILORED_PROFILES = {
+    "fever": {
+        "symptom": "fever",
+        "questions": {
+            "duration": "How long have you had this fever?",
+            "duration_options": ["Just started today", "1–3 days", "About a week", "More than a week"],
+            "onset_pattern": "Did the fever start suddenly with chills, or build up gradually?",
+            "onset_options": ["Sudden with chills", "Gradual build up", "Fluctuates up and down"],
+            "associated_symptoms": "Are you experiencing chills, body aches, a cough, or sore throat?",
+            "associated_options": ["Body aches", "Sore throat", "Cough / Cold", "No other symptoms"]
         }
-    ],
-    "headache": [
-        {
-            "condition": lambda ctx: not ctx.get("duration"),
-            "question": "How long have these headaches been occurring?",
-            "options": ["Few days", "1–2 weeks", "Over a month", "Chronic/Years"]
-        },
-        {
-            "condition": lambda ctx: True,  # Frequency/Pattern check
-            "question": "How frequently do the headaches occur and how would you describe the pain?",
-            "options": ["Daily constant pain", "Throbbing on one side", "Pressure around forehead", "Intermittent sharp spikes"]
-        },
-        {
-            "condition": lambda ctx: not any(s in ctx.get("symptoms", []) for s in ["nausea", "stiff neck", "fever", "vision changes"]),
-            "question": "Are you experiencing any accompanying symptoms?",
-            "options": ["Nausea or sensitivity to light", "Fever or stiff neck", "Vision changes", "None of these"]
+    },
+    "chest pain": {
+        "symptom": "chest pain",
+        "questions": {
+            "duration": "When did you first notice this chest pain?",
+            "duration_options": ["Just now", "A few hours ago", "1–2 days ago", "Weeks (intermittent)"],
+            "onset_pattern": "Did the chest pain start suddenly, and is it constant or does it come and go?",
+            "onset_options": ["Sudden and constant", "Sudden, comes and goes", "Gradual pressure"],
+            "associated_symptoms": "Is the pain radiating to your left arm or jaw, and are you short of breath?",
+            "associated_options": ["Left arm or jaw pain", "Shortness of breath", "Sweating/Nausea", "No other symptoms"]
         }
-    ],
-    "stomach pain": [
-        {
-            "condition": lambda ctx: True,
-            "question": "Where exactly is the stomach pain located?",
-            "options": ["Upper abdomen", "Lower right abdomen", "Lower left abdomen", "All over/Generalized"]
-        },
-        {
-            "condition": lambda ctx: not ctx.get("duration"),
-            "question": "When did the abdominal pain start?",
-            "options": ["Suddenly today", "Past 2–3 days", "Over a week ago", "Recurring for months"]
-        },
-        {
-            "condition": lambda ctx: not any(s in ctx.get("symptoms", []) for s in ["vomiting", "fever", "diarrhea", "blood in stool"]),
-            "question": "Are there any associated symptoms?",
-            "options": ["Nausea or vomiting", "Fever or chills", "Diarrhea or constipation", "None of these"]
+    },
+    "abdominal pain": {
+        "symptom": "abdominal pain",
+        "questions": {
+            "duration": "How long have you been experiencing this stomach pain?",
+            "duration_options": ["Just today", "1–3 days", "About a week", "Recurring for months"],
+            "onset_pattern": "Is it a sharp constant pain in one area, or cramping that comes and goes?",
+            "onset_options": ["Sharp constant pain", "Cramping, comes/goes", "Dull ache all over"],
+            "associated_symptoms": "Are you experiencing nausea, vomiting, bloating, or changes in your stool?",
+            "associated_options": ["Nausea or vomiting", "Diarrhea or loose stools", "Constipation", "No other symptoms"]
         }
-    ],
-    "cough": [
-        {
-            "condition": lambda ctx: not ctx.get("duration"),
-            "question": "How long has the cough been present?",
-            "options": ["Less than 1 week", "1–3 weeks", "More than 3 weeks"]
-        },
-        {
-            "condition": lambda ctx: True,
-            "question": "Is the cough dry or producing mucus/phlegm?",
-            "options": ["Dry cough", "Clear/White phlegm", "Yellow/Green phlegm", "Blood-tinged"]
+    },
+    "stomach pain": {
+        "symptom": "stomach pain",
+        "questions": {
+            "duration": "How long have you been experiencing this stomach pain?",
+            "duration_options": ["Just today", "1–3 days", "About a week", "Recurring for months"],
+            "onset_pattern": "Is it a sharp constant pain in one area, or cramping that comes and goes?",
+            "onset_options": ["Sharp constant pain", "Cramping, comes/goes", "Dull ache all over"],
+            "associated_symptoms": "Are you experiencing nausea, vomiting, bloating, or changes in your stool?",
+            "associated_options": ["Nausea or vomiting", "Diarrhea or loose stools", "Constipation", "No other symptoms"]
         }
-    ]
+    },
+    "headache": {
+        "symptom": "headache",
+        "questions": {
+            "duration": "How long have you been experiencing these headaches?",
+            "duration_options": ["Started today", "Few days ago", "Over a week", "Chronic / recurring"],
+            "onset_pattern": "How does the headache feel — is it a throbbing pain on one side or constant pressure?",
+            "onset_options": ["Throbbing on one side", "Pressure all over", "Sharp stabbing", "Dull constant ache"],
+            "associated_symptoms": "Any accompanying symptoms like nausea, vision changes, or sensitivity to light?",
+            "associated_options": ["Nausea", "Vision changes / aura", "Sensitivity to light", "No other symptoms"]
+        }
+    },
+    "cough": {
+        "symptom": "cough",
+        "questions": {
+            "duration": "How long have you had this cough?",
+            "duration_options": ["Less than a week", "1–3 weeks", "More than 3 weeks"],
+            "onset_pattern": "Is it a dry tickly cough, or are you bringing up mucus or phlegm?",
+            "onset_options": ["Dry tickly cough", "Clear / white phlegm", "Yellow / green phlegm", "Blood-tinged"],
+            "associated_symptoms": "Are you experiencing wheezing, shortness of breath, or chest tightness?",
+            "associated_options": ["Wheezing", "Shortness of breath", "Chest tightness", "No other symptoms"]
+        }
+    },
+    "fatigue": {
+        "symptom": "fatigue",
+        "questions": {
+            "duration": "How long have you been feeling this fatigue?",
+            "duration_options": ["A few days", "1–2 weeks", "About a month", "Several months"],
+            "onset_pattern": "Does the tiredness improve with rest, or do you still feel exhausted after sleeping well?",
+            "onset_options": ["Improves with rest", "Tired even after sleep", "Hard to tell"],
+            "associated_symptoms": "Have you noticed any other changes — like unexplained weight loss, night sweats, or dizziness?",
+            "associated_options": ["Weight loss", "Night sweats", "Dizziness", "No other symptoms"]
+        }
+    },
+    "tired": {
+        "symptom": "fatigue",
+        "questions": {
+            "duration": "How long have you been feeling this fatigue?",
+            "duration_options": ["A few days", "1–2 weeks", "About a month", "Several months"],
+            "onset_pattern": "Does the tiredness improve with rest, or do you still feel exhausted after sleeping well?",
+            "onset_options": ["Improves with rest", "Tired even after sleep", "Hard to tell"],
+            "associated_symptoms": "Have you noticed any other changes — like unexplained weight loss, night sweats, or dizziness?",
+            "associated_options": ["Weight loss", "Night sweats", "Dizziness", "No other symptoms"]
+        }
+    }
 }
 
 def evaluate_missing_clinical_context(intent: str, ctx: PatientContext) -> Tuple[bool, Optional[str], Optional[List[str]]]:
     """
-    Evaluates if critical context is missing for a symptom query.
+    Evaluates missing intake context sequentially tailored to the stated symptom/disease.
     Returns (should_ask_followup, followup_question_text, option_chips_list).
     """
-    # Only ask follow-ups for symptom queries or initial general symptom descriptions
-    if intent not in ["symptom_question", "general_health_question"]:
+    ctx_dict = format_patient_context_summary(ctx)
+
+    if ctx.intake_completed:
         return False, None, None
 
-    ctx_dict = format_patient_context_summary(ctx)
-    symptoms = ctx_dict.get("symptoms", [])
+    # Step 1: Clarifying Question Retry
+    if ctx.current_step == 1 and ctx.clarify_retry and not ctx.primary_complaint:
+        return True, "No worries — could you describe what you're experiencing in your own words? For example: pain, itching, hair thinning, fatigue, etc.", None
 
-    # Match primary symptom matrix
-    for sym_key, rules in CLINICAL_FOLLOWUP_MATRIX.items():
-        if any(sym_key in s for s in symptoms) or sym_key in ctx.symptoms.lower():
-            for rule in rules:
-                if rule["condition"](ctx_dict):
-                    return True, rule["question"], rule["options"]
+    primary_sym = ctx.primary_complaint or "issue"
 
-    # Generic symptom missing duration check if symptoms exist but duration is missing
-    if symptoms and not ctx_dict.get("duration"):
-        return (
-            True,
-            f"To help provide relevant medical information regarding {', '.join(symptoms)}, how long have these symptoms been present?",
-            ["1–3 days", "1–2 weeks", "1 month", "More than 1 month"]
-        )
+    # Find profile or use fallback
+    profile = None
+    for k, v in DISEASE_TAILORED_PROFILES.items():
+        if k in primary_sym.lower():
+            profile = v
+            break
 
-    # Generic symptom missing age check
-    if symptoms and not ctx_dict.get("age"):
-        return (
-            True,
-            "Could you share your approximate age (or the patient's age)? Age can significantly influence potential health considerations.",
-            ["Child (<18)", "Adult (18-64)", "Senior (65+)"]
-        )
+    # Step 1: Primary Complaint
+    if ctx.current_step == 1:
+        if primary_sym and primary_sym != "issue":
+            ctx.current_step = 2
+        else:
+            return True, "What's the main health issue or primary symptom you're experiencing today?", ["Fever / Chills", "Fatigue / Weakness", "Headache / Dizziness", "Stomach / Abdominal Pain", "Cough / Respiratory", "Joint / Body Pain"]
 
+    # Step 2: Duration
+    if ctx.current_step == 2:
+        if ctx_dict.get("duration"):
+            ctx.current_step = 3
+        else:
+            if profile and "duration" in profile["questions"]:
+                return True, profile["questions"]["duration"], profile["questions"]["duration_options"]
+            return True, f"How many days or weeks has this {primary_sym} been going on?", ["Just started today", "1–3 days", "About a week", "More than a month"]
+
+    # Step 3: Onset & Pattern
+    if ctx.current_step == 3:
+        if ctx_dict.get("onset_pattern"):
+            ctx.current_step = 4
+        else:
+            if profile and "onset_pattern" in profile["questions"]:
+                return True, profile["questions"]["onset_pattern"], profile["questions"]["onset_options"]
+            return True, f"Did this {primary_sym} start suddenly or gradually? Is it constant or does it come and go?", ["Sudden & Constant", "Sudden & Comes and goes", "Gradual & Constant", "Gradual & Comes and goes"]
+
+    # Step 4: Associated Symptoms
+    if ctx.current_step == 4:
+        if profile and "associated_symptoms" in profile["questions"]:
+            return True, profile["questions"]["associated_symptoms"], profile["questions"]["associated_options"]
+        return True, f"Are you experiencing any other symptoms along with this {primary_sym} — e.g. fever, fatigue, pain, nausea, cough?", ["Fever or chills", "Nausea or vomiting", "Cough or sore throat", "Dizziness or headache", "Body aches", "No other symptoms"]
+
+    # Step 5: Severity
+    if ctx.current_step == 5:
+        if ctx_dict.get("severity"):
+            ctx.current_step = 6
+        else:
+            return True, f"On a scale of 1–10, how severe would you say this {primary_sym} is?", ["Mild (1-3)", "Moderate (4-6)", "Severe (7-9)", "Unbearable (10)"]
+
+    # Step 6: Pre-existing Conditions / History
+    if ctx.current_step == 6:
+        if ctx_dict.get("known_conditions") and ctx_dict.get("known_conditions") != []:
+            ctx.current_step = 7
+        else:
+            return True, f"Do you have any pre-existing medical conditions (such as diabetes, BP, asthma, thyroid) that relate to this {primary_sym}?", ["High blood pressure", "Diabetes", "Asthma / Respiratory", "Thyroid disorder", "None of these"]
+
+    # Step 7: Current Medications
+    if ctx.current_step == 7:
+        if ctx_dict.get("medications") and ctx_dict.get("medications") != []:
+            ctx.current_step = 8
+        else:
+            return True, f"Are you currently taking any prescription medications or supplements to manage this {primary_sym}?", ["Pain relievers (Ibuprofen/Paracetamol)", "Yes, prescription meds", "Yes, other supplements", "No medications"]
+
+    # Step 8: Allergies
+    if ctx.current_step == 8:
+        if ctx_dict.get("allergies"):
+            ctx.current_step = 9
+        else:
+            return True, "Do you have any known allergies to drugs, food, or environmental triggers?", ["Penicillin / Antibiotics", "NSAIDs / Aspirin", "Food allergies", "No known allergies"]
+
+    # Step 9: Recent Exposure / Triggers
+    if ctx.current_step == 9:
+        if ctx_dict.get("recent_exposure"):
+            ctx.current_step = 10
+        else:
+            return True, f"Have you had any recent travel, contact with a sick person, new foods, or environmental triggers related to this {primary_sym}?", ["Contact with sick person", "Recent travel", "Dietary change / new food", "No recent triggers"]
+
+    # Step 10: Safety Red Flag check
+    if ctx.current_step == 10:
+        return True, f"Red Flag Safety Check: Along with the {primary_sym}, are you experiencing difficulty breathing, chest pain, severe bleeding, confusion, or fainting?", ["Yes, experiencing red flags", "No, none of these"]
+
+    # All steps completed
+    ctx.intake_completed = True
     return False, None, None

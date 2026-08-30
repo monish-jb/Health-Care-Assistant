@@ -1,7 +1,7 @@
 """
 Patient Context & Memory Management Module.
-Tracks patient demographics, symptoms, duration, medications, known conditions, and lab values.
-Enforces patient data isolation between users.
+Tracks patient demographics, symptoms, duration, onset, severity, medications, conditions, allergies, triggers, and lab values.
+Supports Structured Medical Intake Flow.
 """
 
 import json
@@ -24,7 +24,13 @@ def get_or_create_patient_context(db: Session, conversation_id: int, user_id: in
             symptoms="[]",
             medications="[]",
             known_conditions="[]",
-            lab_results="{}"
+            lab_results="{}",
+            intake_completed=False,
+            current_step=1,
+            clarify_retry=False,
+            booking_state=None,
+            selected_doctor_id=None,
+            selected_slot_time=None
         )
         db.add(ctx)
         db.commit()
@@ -32,17 +38,17 @@ def get_or_create_patient_context(db: Session, conversation_id: int, user_id: in
 
     return ctx
 
-def extract_patient_entities(text: str) -> Dict[str, Any]:
+def extract_patient_entities(text: str, current_step: int = 1) -> Dict[str, Any]:
     """Regex & heuristic entity extractor for medical context."""
     extracted = {}
-    text_lower = text.lower()
+    text_lower = text.lower().strip()
 
     # Age extraction: Support option chips and natural text
-    if "child" in text_lower or "<18" in text_lower or "under 18" in text_lower:
+    if any(k in text_lower for k in ["child", "<18", "under 18"]):
         extracted["age"] = 12
-    elif "adult" in text_lower or "18-64" in text_lower or "18–64" in text_lower or "18–40" in text_lower or "18-40" in text_lower or "41–65" in text_lower or "41-65" in text_lower:
+    elif any(k in text_lower for k in ["adult", "18-64", "18–64", "18–40", "18-40", "41–65", "41-65"]):
         extracted["age"] = 35
-    elif "senior" in text_lower or "65+" in text_lower or "over 65" in text_lower or "elderly" in text_lower:
+    elif any(k in text_lower for k in ["senior", "65+", "over 65", "elderly"]):
         extracted["age"] = 70
     else:
         age_match = re.search(r'\b(\d{1,3})\s*(years old|year old|yo|y/o|yr old|yrs old|years|yrs)\b', text_lower)
@@ -74,11 +80,25 @@ def extract_patient_entities(text: str) -> Dict[str, Any]:
             extracted["duration"] = match_str
             break
 
+    # Onset & Pattern
+    if any(k in text_lower for k in ["sudden", "abrupt", "gradual", "constant", "comes and goes", "intermittent", "recurring"]):
+        extracted["onset_pattern"] = text.strip()
+
+    # Severity (1-10 or mild/moderate/severe)
+    sev_match = re.search(r'\b(10|[1-9])\s*(?:/10|out of 10)?\b', text_lower)
+    if sev_match and any(w in text_lower for w in ["scale", "severe", "severity", "pain", "rate", "out of"]):
+        extracted["severity"] = f"{sev_match.group(1)}/10"
+    elif any(k in text_lower for k in ["mild", "moderate", "severe", "unbearable", "excruciating"]):
+        for word in ["unbearable", "excruciating", "severe", "moderate", "mild"]:
+            if word in text_lower:
+                extracted["severity"] = word.capitalize()
+                break
+
     # Symptom keywords
     common_symptoms = [
         "tired", "fatigue", "exhausted", "headache", "fever", "cough", "stomach pain", "nausea",
         "vomiting", "dizziness", "shortness of breath", "chest pain", "back pain", "joint pain",
-        "rash", "diarrhea", "weight loss", "chills", "sore throat", "numbness", "swelling"
+        "rash", "diarrhea", "weight loss", "chills", "sore throat", "numbness", "swelling", "body aches"
     ]
     found_symptoms = [s for s in common_symptoms if s in text_lower]
     if found_symptoms:
@@ -87,10 +107,12 @@ def extract_patient_entities(text: str) -> Dict[str, Any]:
     # Common Medications
     common_meds = [
         "ibuprofen", "paracetamol", "acetaminophen", "aspirin", "metformin", "lisinopril",
-        "atorvastatin", "amlodipine", "omeprazole", "levothyroxine", "albuterol", "amoxicillin"
+        "atorvastatin", "amlodipine", "omeprazole", "levothyroxine", "albuterol", "amoxicillin", "pain relievers"
     ]
     found_meds = [m for m in common_meds if m in text_lower]
-    if found_meds:
+    if current_step == 7 and any(k in text_lower for k in ["no medications", "no meds", "none", "not taking any", "no medicines"]):
+        extracted["medications"] = ["None"]
+    elif found_meds:
         extracted["medications"] = found_meds
 
     # Common Conditions
@@ -99,8 +121,22 @@ def extract_patient_entities(text: str) -> Dict[str, Any]:
         "hypothyroidism", "hyperthyroidism", "anemia", "gerd", "kidney disease", "heart disease"
     ]
     found_conditions = [c for c in common_conditions if c in text_lower]
-    if found_conditions:
+    if current_step == 6 and any(k in text_lower for k in ["no conditions", "no pre-existing", "healthy", "none", "no illnesses", "no history of illnesses"]):
+        extracted["known_conditions"] = ["None"]
+    elif found_conditions:
         extracted["known_conditions"] = found_conditions
+
+    # Allergies
+    if any(k in text_lower for k in ["penicillin", "antibiotics", "nsaids", "aspirin", "food allergies", "latex", "dust", "pollen"]):
+        extracted["allergies"] = text.strip()
+    elif current_step == 8 and any(k in text_lower for k in ["no allergies", "no known allergies", "none"]):
+        extracted["allergies"] = "None"
+
+    # Triggers / Exposure
+    if any(k in text_lower for k in ["travel", "sick person", "sick contact", "new food", "dietary change", "environmental"]):
+        extracted["recent_exposure"] = text.strip()
+    elif current_step == 9 and any(k in text_lower for k in ["no triggers", "no recent triggers", "no exposure", "none"]):
+        extracted["recent_exposure"] = "None"
 
     # Lab Results extraction regex
     lab_matches = re.findall(r'\b(tsh|hemoglobin|hb|glucose|hba1c|creatinine|wbc|platelets|alt|ast)\s*(?:level|result|of|=|:)?\s*(\d+(?:\.\d+)?\s*(?:miu/l|g/dl|mg/dl|%|cells/mcl|/mcl|u/l)?)\b', text_lower)
@@ -114,7 +150,10 @@ def extract_patient_entities(text: str) -> Dict[str, Any]:
 
 def update_patient_context_from_message(db: Session, ctx: PatientContext, user_text: str) -> PatientContext:
     """Updates PatientContext record with new entities found in user text."""
-    entities = extract_patient_entities(user_text)
+    text_clean = user_text.strip()
+    text_lower = text_clean.lower()
+
+    entities = extract_patient_entities(user_text, current_step=ctx.current_step)
 
     if "age" in entities and not ctx.age:
         ctx.age = entities["age"]
@@ -124,6 +163,18 @@ def update_patient_context_from_message(db: Session, ctx: PatientContext, user_t
 
     if "duration" in entities:
         ctx.duration = entities["duration"]
+
+    if "onset_pattern" in entities:
+        ctx.onset_pattern = entities["onset_pattern"]
+
+    if "severity" in entities:
+        ctx.severity = entities["severity"]
+
+    if "allergies" in entities:
+        ctx.allergies = entities["allergies"]
+
+    if "recent_exposure" in entities:
+        ctx.recent_exposure = entities["recent_exposure"]
 
     # Append new symptoms
     curr_symptoms = json.loads(ctx.symptoms) if ctx.symptoms else []
@@ -152,6 +203,29 @@ def update_patient_context_from_message(db: Session, ctx: PatientContext, user_t
         curr_labs.update(entities["lab_results"])
         ctx.lab_results = json.dumps(curr_labs)
 
+    # Step 1: Generalized Primary Complaint Extraction
+    if ctx.current_step == 1 and not ctx.primary_complaint:
+        ambiguous_terms = ["none", "no", "not sure", "idk", "nothing", "hello", "hi", "test", "not really", "unclear", "skip"]
+        is_ambiguous = text_lower in ambiguous_terms or len(text_lower) < 3
+        
+        if is_ambiguous:
+            if not ctx.clarify_retry:
+                ctx.clarify_retry = True
+                # Keep current_step = 1 so evaluate_missing_clinical_context triggers clarify question
+            else:
+                ctx.primary_complaint = "unspecified symptoms"
+                ctx.symptoms = json.dumps(["unspecified symptoms"])
+                ctx.current_step = 2
+        else:
+            ctx.primary_complaint = text_clean
+            curr_symptoms = json.loads(ctx.symptoms) if ctx.symptoms else []
+            if not curr_symptoms:
+                curr_symptoms.append(text_clean)
+            ctx.symptoms = json.dumps(curr_symptoms)
+            ctx.current_step = 2
+    elif ctx.current_step >= 2 and ctx.current_step <= 10:
+        ctx.current_step += 1
+
     db.commit()
     db.refresh(ctx)
     return ctx
@@ -164,11 +238,22 @@ def format_patient_context_summary(ctx: PatientContext) -> Dict[str, Any]:
         "user_id": ctx.user_id,
         "age": ctx.age,
         "sex": ctx.sex,
+        "primary_complaint": ctx.primary_complaint,
         "symptoms": json.loads(ctx.symptoms) if ctx.symptoms else [],
         "duration": ctx.duration,
+        "onset_pattern": ctx.onset_pattern,
+        "severity": ctx.severity,
         "medications": json.loads(ctx.medications) if ctx.medications else [],
         "known_conditions": json.loads(ctx.known_conditions) if ctx.known_conditions else [],
+        "allergies": ctx.allergies,
+        "recent_exposure": ctx.recent_exposure,
         "lab_results": json.loads(ctx.lab_results) if ctx.lab_results else {},
+        "intake_completed": ctx.intake_completed,
+        "current_step": ctx.current_step,
+        "clarify_retry": ctx.clarify_retry or False,
+        "booking_state": ctx.booking_state,
+        "selected_doctor_id": ctx.selected_doctor_id,
+        "selected_slot_time": ctx.selected_slot_time,
         "updated_at": ctx.updated_at
     }
 
@@ -176,20 +261,30 @@ def format_patient_context_for_prompt(ctx: PatientContext) -> str:
     """Format structured context string for LLM input."""
     summary = format_patient_context_summary(ctx)
     parts = []
-    if summary["age"]:
-        parts.append(f"Age: {summary['age']}")
-    if summary["sex"]:
-        parts.append(f"Sex: {summary['sex']}")
-    if summary["symptoms"]:
-        parts.append(f"Reported Symptoms: {', '.join(summary['symptoms'])}")
+    if summary["primary_complaint"]:
+        parts.append(f"- **Primary Complaint**: {summary['primary_complaint']}")
+    elif summary["symptoms"]:
+        parts.append(f"- **Primary Complaint / Symptoms**: {', '.join(summary['symptoms'])}")
     if summary["duration"]:
-        parts.append(f"Symptom Duration: {summary['duration']}")
-    if summary["medications"]:
-        parts.append(f"Current Medications: {', '.join(summary['medications'])}")
+        parts.append(f"- **Duration**: {summary['duration']}")
+    if summary["onset_pattern"]:
+        parts.append(f"- **Onset & Pattern**: {summary['onset_pattern']}")
+    if summary["severity"]:
+        parts.append(f"- **Severity**: {summary['severity']}")
+    if summary["age"]:
+        parts.append(f"- **Age**: {summary['age']}")
+    if summary["sex"]:
+        parts.append(f"- **Sex**: {summary['sex']}")
     if summary["known_conditions"]:
-        parts.append(f"Known Pre-existing Conditions: {', '.join(summary['known_conditions'])}")
+        parts.append(f"- **Known Conditions**: {', '.join(summary['known_conditions'])}")
+    if summary["medications"]:
+        parts.append(f"- **Current Medications**: {', '.join(summary['medications'])}")
+    if summary["allergies"]:
+        parts.append(f"- **Allergies**: {summary['allergies']}")
+    if summary["recent_exposure"]:
+        parts.append(f"- **Recent Triggers / Exposure**: {summary['recent_exposure']}")
     if summary["lab_results"]:
         lab_str = ", ".join([f"{k}: {v}" for k, v in summary["lab_results"].items()])
-        parts.append(f"Recent Lab Results: {lab_str}")
+        parts.append(f"- **Recent Lab Results**: {lab_str}")
 
-    return "\n".join(parts) if parts else "No specific patient profile context gathered yet."
+    return "\n".join(parts) if parts else "No patient intake history gathered yet."

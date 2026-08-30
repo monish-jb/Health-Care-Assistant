@@ -449,8 +449,8 @@ export const ChatPage = () => {
                         )}
                       </div>
 
-                      {/* Evidence Reasoning & Citations */}
-                      {!isUser && (
+                      {/* Evidence Reasoning & Citations — only on final assessment, not during conversational intake */}
+                      {!isUser && msg.rag_grounded && msg.citations && (
                         <>
                           <ReasoningBadge
                             message={msg}
