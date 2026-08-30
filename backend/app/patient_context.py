@@ -72,14 +72,19 @@ def extract_patient_entities(text: str, current_step: int = 1) -> Dict[str, Any]
         extracted["sex"] = "Male"
 
     # Duration extraction: Support range chips (1–3 days, 1-2 weeks, more than 1 month, etc.)
-    all_duration_matches = re.finditer(r'\b(?:more than\s+)?(\d+\s*[\-–—]\s*\d+|\d+|a|few|several|couple of)\s*(days?|weeks?|months?|years?)\b', text_lower)
-    for m in all_duration_matches:
-        match_str = m.group(0)
-        end_idx = m.end()
-        following_text = text_lower[end_idx:end_idx+15]
-        if not re.match(r'^\s*(old|of age|yo|y/o)', following_text):
-            extracted["duration"] = match_str
-            break
+    if any(k in text_lower for k in ["started today", "today", "just started"]):
+        extracted["duration"] = "1 day"
+    elif "yesterday" in text_lower:
+        extracted["duration"] = "2 days"
+    else:
+        all_duration_matches = re.finditer(r'\b(?:more than\s+)?(\d+\s*[\-–—]\s*\d+|\d+|a|few|several|couple of)\s*(days?|weeks?|months?|years?)\b', text_lower)
+        for m in all_duration_matches:
+            match_str = m.group(0)
+            end_idx = m.end()
+            following_text = text_lower[end_idx:end_idx+15]
+            if not re.match(r'^\s*(old|of age|yo|y/o)', following_text):
+                extracted["duration"] = match_str
+                break
 
     # Onset & Pattern
     if any(k in text_lower for k in ["sudden", "abrupt", "gradual", "constant", "comes and goes", "intermittent", "recurring"]):
@@ -271,6 +276,29 @@ def update_patient_context_from_message(db: Session, ctx: PatientContext, user_t
             ctx.raw_notes = json.dumps(raw_list)
 
         ctx.current_step += 1
+
+    # Skip-ahead logic: automatically skip any steps whose clinical fields are already populated.
+    ctx_dict = format_patient_context_summary(ctx)
+    while ctx.current_step <= 10:
+        step = ctx.current_step
+        if step == 2 and ctx_dict.get("duration"):
+            ctx.current_step += 1
+        elif step == 3 and ctx_dict.get("onset_pattern"):
+            ctx.current_step += 1
+        elif step == 4 and len(ctx_dict.get("symptoms", [])) > 1:
+            ctx.current_step += 1
+        elif step == 5 and ctx_dict.get("severity"):
+            ctx.current_step += 1
+        elif step == 6 and len(ctx_dict.get("known_conditions", [])) > 0:
+            ctx.current_step += 1
+        elif step == 7 and len(ctx_dict.get("medications", [])) > 0:
+            ctx.current_step += 1
+        elif step == 8 and ctx_dict.get("allergies"):
+            ctx.current_step += 1
+        elif step == 9 and ctx_dict.get("recent_exposure"):
+            ctx.current_step += 1
+        else:
+            break
 
     db.commit()
     db.refresh(ctx)

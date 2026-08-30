@@ -396,7 +396,19 @@ async def send_message(
     if missing_fields:
         elapsed_ms = int((time.time() - start_time) * 1000)
         
-        active_field = missing_fields[0]
+        step_fields = {
+            1: "primary_complaint",
+            2: "duration",
+            3: "onset_pattern",
+            4: "associated_symptoms",
+            5: "severity",
+            6: "known_conditions",
+            7: "medications",
+            8: "allergies",
+            9: "recent_exposure",
+            10: "safety_red_flags"
+        }
+        active_field = step_fields.get(patient_ctx.current_step, "safety_red_flags")
         option_chips = []
         if active_field == "duration":
             option_chips = ["Just started today", "1–3 days", "About a week", "More than a month"]
