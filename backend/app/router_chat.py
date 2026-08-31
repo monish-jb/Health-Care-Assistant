@@ -473,9 +473,10 @@ async def send_message(
             "- Incorporating negative/reassuring findings: 'Okay, so no scalp irritation, no illness or fever — that\\'s reassuring, it points away from anything infectious or inflammatory. If you had to put a number on it, how would you rate how bothered you are by the shedding right now — like, is it mild and just noticeable, or does it feel like it\\'s really affecting you day to day?'\n"
             "- Normalizing & contextualizing: 'Given everything so far — gradual onset, mostly during washing, no scalp symptoms — this is starting to sound like a pretty classic pattern. One thing that often ties into this: do you have any ongoing health conditions, like thyroid issues, diabetes, or anything like that? Thyroid function in particular has a strong link to hair cycling.'\n"
             "- Handling unexpected or incomplete replies: 'That\\'s a helpful detail, though I want to make sure I understand it correctly — when you say it happens during bathing, do you mean the hair actually detaches more in that moment, or is that just when you notice it most because you\\'re running your hands through it?'\n\n"
-            "LENGTH AND RHYTHM:\n"
-            "- Form one natural paragraph of 2–4 connected sentences, not a single-line question.\n"
-            "- Vary your entry points: lead with reasoning, reassurance, or callback specifically. Avoid opening every turn with the same formulaic template (e.g. NEVER use 'Thank you for providing that detail').\n"
+            "LENGTH AND STYLE:\n"
+            "- Keep your response short, simple, and direct.\n"
+            "- It must consist of exactly two sentences: one sentence acknowledging/reacting to the patient's previous answer in simpler terms, followed by one sentence asking the next question.\n"
+            "- Never output a big paragraph or use complex medical jargon.\n"
             "- Output ONLY the response/question. Do not include steps, labels, headers, or bullet points."
         )
 
@@ -486,6 +487,8 @@ async def send_message(
         print(f"SYSTEM INSTRUCTION:\n{system_instruction}")
 
         fallback_q = f"Ask a warm clinician follow-up question to collect the missing clinical field: {active_field}."
+        if active_field == "primary_complaint" and patient_ctx.clarify_retry:
+            fallback_q += " (clarify_retry: True)"
 
         provider = get_llm_provider()
         try:
