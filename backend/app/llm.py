@@ -184,22 +184,97 @@ class TemplateProvider(BaseLLMProvider):
         is_escalated: bool = False,
         escalation_reason: Optional[str] = None
     ) -> str:
-        # Check if the user mentioned bathing in the history
         has_bathing = False
         for msg in messages:
             if msg.get("role") == "user" and "bathing" in msg.get("content", "").lower():
                 has_bathing = True
                 break
 
-        if has_bathing and intent == "intake_followup":
-            return (
-                "Good to know — so it's specifically tied to bathing/water contact, "
-                "not something happening randomly through the day. That's a useful detail. "
-                "Along with the hair loss, are you noticing anything else — fever, fatigue, scalp itching?"
-            )
+        if intent == "intake_followup":
+            # Extract active field from context
+            active_field = "primary_complaint"
+            if context:
+                for field in ["primary_complaint", "duration", "onset_pattern", "associated_symptoms", "severity", "known_conditions", "medications", "allergies", "recent_exposure", "safety_red_flags"]:
+                    if field in context:
+                        active_field = field
+                        break
 
-        if intent == "intake_followup" and context:
-            return context
+            # Find the last message from user in history to acknowledge it specifically
+            user_msg = ""
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    user_msg = msg.get("content", "").strip()
+                    break
+
+            if has_bathing:
+                return (
+                    "Good to know — so it's specifically tied to bathing/water contact, "
+                    "not something happening randomly through the day. That's a useful detail. "
+                    "Along with the hair loss, are you noticing anything else — fever, fatigue, scalp itching?"
+                )
+
+            # Generate warm, clinician-toned response based on the active field
+            if active_field == "primary_complaint":
+                return (
+                    "Alright, thank you for sharing that with me. It helps to understand exactly what health issue "
+                    "is top of mind for you today. To get started, how many days or weeks has this been going on?"
+                )
+            elif active_field == "duration":
+                return (
+                    f"Got it, so this has been going on for {user_msg}. Knowing the timeframe is really helpful, "
+                    f"as it tells us whether we're dealing with something acute or a more chronic issue. To help clarify "
+                    f"the pattern, did this start quite suddenly, or has it been a gradual process over time?"
+                )
+            elif active_field == "onset_pattern":
+                return (
+                    f"Thanks for describing that onset. Experiencing it as {user_msg} is a very helpful clinical detail "
+                    f"because the way symptoms initiate tells us a lot about the potential underlying causes. To get a "
+                    f"better sense of things, did this start suddenly or gradually? Is it constant or does it come and go?"
+                )
+            elif active_field == "associated_symptoms":
+                return (
+                    f"Okay, so regarding how it behaves: {user_msg}. That's a helpful clue — pattern and onset are key indicators. "
+                    f"Are you experiencing any other symptoms along with this — e.g. fever, fatigue, pain, nausea, cough?"
+                )
+            elif active_field == "severity":
+                return (
+                    f"Okay, so in terms of other symptoms, you've noted: {user_msg}. That's an important piece of the puzzle, "
+                    f"as systemic symptoms often point to different triggers. If you had to rate the severity of your "
+                    f"main symptom on a scale of 1 to 10, how intense would you say it is?"
+                )
+            elif active_field == "known_conditions":
+                return (
+                    f"Thank you for sharing that severity rating of {user_msg}. It helps us gauge how much this is impacting you. "
+                    f"To help me understand your overall health background, do you have any pre-existing medical conditions like "
+                    f"high blood pressure, diabetes, asthma, or thyroid disorders?"
+                )
+            elif active_field == "medications":
+                return (
+                    f"Understood, so regarding pre-existing conditions, you mentioned: {user_msg}. Having that history "
+                    f"helps us see if there are any connections to your current symptoms. Next, are you currently taking any daily "
+                    f"prescription medications, supplements, or over-the-counter drugs?"
+                )
+            elif active_field == "allergies":
+                return (
+                    f"Got it, regarding daily medications or supplements: {user_msg}. Keeping track of this helps us avoid any "
+                    f"drug interactions or rule out side effects. Do you have any known allergies to drugs, food, or environmental triggers?"
+                )
+            elif active_field == "recent_exposure":
+                return (
+                    f"Thank you for letting me know about your allergy status: {user_msg}. This is crucial for safety and planning. "
+                    f"Have you had any recent travel, contact with sick individuals, or exposure to new foods/environments?"
+                )
+            elif active_field == "safety_red_flags":
+                return (
+                    f"Okay, so regarding recent travel or exposure: {user_msg}. This helps us rule out external triggers. "
+                    f"Lastly, along with everything we've discussed, are you experiencing any difficulty breathing, chest pain, "
+                    f"severe bleeding, confusion, or fainting?"
+                )
+            else:
+                return (
+                    "Reassuring to know about the lack of emergency symptoms. Since we've gathered the key details, "
+                    "I'll compile a summary of your health profile. Would you like me to book an appointment with a specialist for this?"
+                )
 
         user_msg = messages[-1]["content"] if messages else ""
         user_msg_lower = user_msg.lower().strip()

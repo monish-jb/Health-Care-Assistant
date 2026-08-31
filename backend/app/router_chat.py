@@ -137,6 +137,21 @@ async def send_message(
 ):
     start_time = time.time()
     
+    # Step 5: Debug log to identify incoming message source (option chip or free-text)
+    chip_options_list = [
+        "Just started today", "1–3 days", "About a week", "More than a month",
+        "Sudden & Constant", "Sudden & Comes and goes", "Gradual & Constant", "Gradual & Comes and goes",
+        "Fever or chills", "Nausea or vomiting", "Cough or sore throat", "Dizziness or headache", "Body aches", "No other symptoms",
+        "Mild (1-3)", "Moderate (4-6)", "Severe (7-9)", "Unbearable (10)",
+        "High blood pressure", "Diabetes", "Asthma / Respiratory", "Thyroid disorder", "None of these",
+        "Pain relievers (Ibuprofen/Paracetamol)", "Yes, prescription meds", "Yes, other supplements", "No medications",
+        "Penicillin / Antibiotics", "NSAIDs / Aspirin", "Food allergies", "No known allergies",
+        "Contact with sick person", "Recent travel", "Dietary change / new food", "No recent triggers",
+        "Yes, experiencing red flags", "No, none of these", "Yes, book appointment", "Cancel", "skip"
+    ]
+    request_source = "Option Chip Click" if any(req.content.strip().lower() == c.strip().lower() for c in chip_options_list) else "Free-Text Input"
+    print(f"[DEBUG_SOURCE] Incoming message source: {request_source} | Content: '{req.content}'")
+    
     # 1. Classify Intent early to save message
     intent, intent_confidence = classify_intent(req.content)
     
@@ -470,23 +485,7 @@ async def send_message(
         print(f"PAYLOAD MESSAGES:\n{json.dumps(history_payload, indent=2)}")
         print(f"SYSTEM INSTRUCTION:\n{system_instruction}")
 
-        fallback_questions = {
-            "primary_complaint": (
-                "No worries — could you describe what you're experiencing in your own words? For example: pain, itching, hair thinning, fatigue, etc."
-                if patient_ctx.clarify_retry else
-                "What's the main health issue or primary symptom you're experiencing today?"
-            ),
-            "duration": f"How many days or weeks has this {patient_ctx.primary_complaint or 'symptom'} been going on?",
-            "onset_pattern": f"Did this start suddenly or gradually? Is it constant or does it come and go?",
-            "associated_symptoms": f"Are you experiencing any other symptoms along with this — e.g. fever, fatigue, pain, nausea, cough?",
-            "severity": f"On a scale of 1–10, how severe would you say this is?",
-            "known_conditions": f"Do you have any pre-existing medical conditions (such as diabetes, BP, asthma, thyroid) that relate to this?",
-            "medications": f"Are you currently taking any prescription medications or supplements to manage this?",
-            "allergies": "Do you have any known allergies to drugs, food, or environmental triggers?",
-            "recent_exposure": f"Have you had any recent travel, contact with a sick person, new foods, or environmental triggers related to this?",
-            "safety_red_flags": f"Red Flag Safety Check: Along with the symptoms, are you experiencing difficulty breathing, chest pain, severe bleeding, confusion, or fainting?"
-        }
-        fallback_q = fallback_questions.get(active_field, "Could you tell me more about your symptoms?")
+        fallback_q = f"Ask a warm clinician follow-up question to collect the missing clinical field: {active_field}."
 
         provider = get_llm_provider()
         try:
