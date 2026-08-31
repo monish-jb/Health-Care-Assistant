@@ -444,6 +444,9 @@ async def send_message(
         elif active_field == "safety_red_flags":
             option_chips = ["Yes, experiencing red flags", "No, none of these"]
 
+        if option_chips:
+            option_chips.append("Other")
+
         past_messages = (
             db.query(Message)
             .filter(Message.conversation_id == conv.id)

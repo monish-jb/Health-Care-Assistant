@@ -37,6 +37,7 @@ export const ChatPage = () => {
 
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const chatInputRef = useRef(null);
 
   // Fetch conversation list
   const loadConversations = async (selectId = null) => {
@@ -149,7 +150,13 @@ export const ChatPage = () => {
   };
 
   const handleSelectOptionChip = (chipText) => {
-    executeSendMessage(chipText);
+    if (chipText.toLowerCase() === 'other' || chipText.toLowerCase() === 'others') {
+      if (chatInputRef.current) {
+        chatInputRef.current.focus();
+      }
+    } else {
+      executeSendMessage(chipText);
+    }
   };
 
   const handleFileUpload = async (e) => {
@@ -559,6 +566,7 @@ export const ChatPage = () => {
               </div>
               <input
                 type="text"
+                ref={chatInputRef}
                 value={inputContent}
                 onChange={(e) => setInputContent(e.target.value)}
                 placeholder="Describe your symptoms or reply to questions..."
