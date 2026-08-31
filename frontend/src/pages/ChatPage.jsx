@@ -34,6 +34,8 @@ export const ChatPage = () => {
   const [selectedCitation, setSelectedCitation] = useState(null);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [bottomTab, setBottomTab] = useState('health-ai');
+  const [showOtherModal, setShowOtherModal] = useState(false);
+  const [customReplyText, setCustomReplyText] = useState('');
 
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -151,10 +153,8 @@ export const ChatPage = () => {
 
   const handleSelectOptionChip = (chipText) => {
     if (chipText.toLowerCase() === 'other' || chipText.toLowerCase() === 'others') {
-      if (chatInputRef.current) {
-        setInputContent('');
-        chatInputRef.current.focus();
-      }
+      setCustomReplyText('');
+      setShowOtherModal(true);
     } else {
       executeSendMessage(chipText);
     }
@@ -617,6 +617,101 @@ export const ChatPage = () => {
           citation={selectedCitation}
           onClose={() => setSelectedCitation(null)}
         />
+      )}
+
+      {showOtherModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(15, 23, 42, 0.6)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px',
+          zIndex: 9999
+        }}>
+          <div style={{
+            background: '#FFFFFF',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '400px',
+            padding: '24px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#0F172A' }}>Enter Custom Response</h3>
+              <button 
+                onClick={() => setShowOtherModal(false)}
+                style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', padding: '4px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <textarea
+              value={customReplyText}
+              onChange={(e) => setCustomReplyText(e.target.value)}
+              placeholder="Type your response here..."
+              rows={4}
+              style={{
+                width: '100%',
+                borderRadius: '8px',
+                border: '1px solid #E2E8F0',
+                padding: '12px',
+                fontSize: '0.9rem',
+                outline: 'none',
+                resize: 'none',
+                fontFamily: 'inherit'
+              }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowOtherModal(false)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: '1px solid #E2E8F0',
+                  background: '#FFFFFF',
+                  color: '#64748B',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (customReplyText.trim()) {
+                    executeSendMessage(customReplyText.trim());
+                    setShowOtherModal(false);
+                  }
+                }}
+                disabled={!customReplyText.trim()}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #0B5A54 0%, #14B8A6 100%)',
+                  color: '#FFFFFF',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  cursor: customReplyText.trim() ? 'pointer' : 'not-allowed',
+                  opacity: customReplyText.trim() ? 1 : 0.6
+                }}
+              >
+                Send Message
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
