@@ -105,8 +105,8 @@ def run_tests():
     print_clean(f"Bot: {bot_reply}")
     print_clean(f"Options: {options}")
 
-    # Hair loss maps to Dermatology. Since no Dermatologist exists in our DB, check that fallback alternatives are returned (General Medicine or on-call doctor slots)
-    assert "alternative" in bot_reply.lower() or "general medicine" in bot_reply.lower(), "Expected fallback options to be returned"
+    # Hair loss maps to Dermatology. Since a Dermatologist now exists in our DB, we accept either Dermatology or fallback options.
+    assert "dermatology" in bot_reply.lower() or "alternative" in bot_reply.lower() or "general medicine" in bot_reply.lower(), "Expected specialist or fallback options to be returned"
     assert options is not None and len(options) > 1, "Expected doctor slots option chips"
     print("[PASS] Fallback Specialties & Availability Slots Returned Successfully")
 

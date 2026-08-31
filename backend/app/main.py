@@ -15,11 +15,15 @@ Base.metadata.create_all(bind=engine)
 
 def seed_doctors(db):
     INITIAL_DOCTORS = [
-        {"name": "Dr. Sarah Jenkins, MD", "department": "Cardiology", "title": "Senior Cardiologist", "room_no": "Room 302", "experience_years": 14},
-        {"name": "Dr. Marcus Vance, MD", "department": "Endocrinology", "title": "Endocrine Specialist", "room_no": "Room 214", "experience_years": 12},
-        {"name": "Dr. Elena Rostova, MD", "department": "Pulmonology", "title": "Pulmonology Consultant", "room_no": "Room 108", "experience_years": 15},
-        {"name": "Dr. David Patel, MD", "department": "Gastroenterology", "title": "Gastroenterologist", "room_no": "Room 405", "experience_years": 11},
-        {"name": "Dr. Emily Hayes, MD", "department": "General Medicine", "title": "Chief Medical Officer", "room_no": "Room 101", "experience_years": 18}
+        {"name": "Dr. Sarah Jenkins, MD", "department": "Cardiology", "title": "Senior Cardiologist", "room_no": "Room 302", "experience_years": 14, "city": "New York"},
+        {"name": "Dr. Marcus Vance, MD", "department": "Endocrinology", "title": "Endocrine Specialist", "room_no": "Room 214", "experience_years": 12, "city": "Boston"},
+        {"name": "Dr. Elena Rostova, MD", "department": "Pulmonology", "title": "Pulmonology Consultant", "room_no": "Room 108", "experience_years": 15, "city": "Bangalore"},
+        {"name": "Dr. David Patel, MD", "department": "Gastroenterology", "title": "Gastroenterologist", "room_no": "Room 405", "experience_years": 11, "city": "Bangalore"},
+        {"name": "Dr. Emily Hayes, MD", "department": "General Medicine", "title": "Chief Medical Officer", "room_no": "Room 101", "experience_years": 18, "city": "New York"},
+        {"name": "Dr. Clara Song, MD", "department": "Dermatology", "title": "Dermatologist Consultant", "room_no": "Room 303", "experience_years": 10, "city": "New York"},
+        {"name": "Dr. Monish JB, MD", "department": "Dermatology", "title": "Senior Dermatologist", "room_no": "Room 304", "experience_years": 12, "city": "Bangalore"},
+        {"name": "Dr. Arjun Prasad, MD", "department": "Cardiology", "title": "Chief Cardiologist", "room_no": "Room 305", "experience_years": 15, "city": "Bangalore"},
+        {"name": "Dr. Priya Nair, MD", "department": "Endocrinology", "title": "Endocrinologist", "room_no": "Room 306", "experience_years": 11, "city": "Chennai"}
     ]
 
     SLOT_TIMES = [

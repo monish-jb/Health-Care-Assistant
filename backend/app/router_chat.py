@@ -2,7 +2,7 @@ import time
 import datetime
 import json
 import logging
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -37,18 +37,40 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 def map_symptom_to_specialty(complaint: str) -> str:
+    _, specialty = map_complaint_to_disease_and_specialty(complaint)
+    return specialty
+
+def map_complaint_to_disease_and_specialty(complaint: str) -> Tuple[str, str]:
     c = str(complaint).lower()
-    if any(w in c for w in ["hair", "skin", "rash", "dermatology"]):
-        return "Dermatology"
+    if any(w in c for w in ["hair", "bald", "shedding"]):
+        return "Alopecia / Hair Loss", "Dermatology"
+    if any(w in c for w in ["skin", "rash", "itch"]):
+        return "Dermatitis / Eczema", "Dermatology"
     if any(w in c for w in ["chest", "heart", "cardio", "bp", "blood pressure", "hypertension"]):
-        return "Cardiology"
+        return "Hypertension / Cardiovascular issue", "Cardiology"
     if any(w in c for w in ["stomach", "abdominal", "belly", "abdomen", "nausea", "vomiting", "gerd", "gastro"]):
-        return "Gastroenterology"
+        return "Gastroesophageal Reflux Disease (GERD) / Gastritis", "Gastroenterology"
     if any(w in c for w in ["cough", "breath", "asthma", "lung", "pulmo"]):
-        return "Pulmonology"
-    if any(w in c for w in ["thyroid", "diabetes", "tsh", "hba1c", "endocrine"]):
-        return "Endocrinology"
-    return "General Medicine"
+        return "Bronchitis / Asthma", "Pulmonology"
+    if any(w in c for w in ["thyroid", "tsh", "endocrine"]):
+        return "Thyroid Disorder", "Endocrinology"
+    if any(w in c for w in ["diabetes", "sugar", "hba1c"]):
+        return "Diabetes Mellitus", "Endocrinology"
+    if any(w in c for w in ["fever", "chills"]):
+        return "Viral Infection / Influenza", "General Medicine"
+    return "Unspecified Medical Issue", "General Medicine"
+
+def detect_user_city(messages, current_content: str) -> str:
+    CITIES = ["Bangalore", "Mumbai", "Delhi", "Chennai", "Kolkata", "Hyderabad", "New York", "Boston", "Chicago", "San Francisco", "London"]
+    for city in CITIES:
+        if city.lower() in current_content.lower():
+            return city
+    for m in reversed(messages):
+        content = m.content if hasattr(m, "content") else m.get("content", "")
+        for city in CITIES:
+            if city.lower() in content.lower():
+                return city
+    return "Bangalore"
 
 def parse_message_json(val: Optional[str]):
     if not val:
@@ -234,7 +256,15 @@ async def send_message(
         if patient_ctx.booking_state == "PROMPTED":
             if any(k in text_lower for k in ["yes", "yep", "sure", "book", "appointment", "schedule"]):
                 specialty = map_symptom_to_specialty(patient_ctx.primary_complaint or "issue")
-                docs = db.query(Doctor).filter(Doctor.department == specialty).all()
+                past_msgs = (
+                    db.query(Message)
+                    .filter(Message.conversation_id == conv.id)
+                    .order_by(Message.created_at.asc())
+                    .all()
+                )
+                user_city = detect_user_city(past_msgs, req.content)
+                
+                docs = db.query(Doctor).filter(Doctor.department == specialty, Doctor.city == user_city).all()
                 available_slots_list = []
                 for doc in docs:
                     slots = db.query(DoctorSlot).filter(DoctorSlot.doctor_id == doc.id, DoctorSlot.is_booked == False).all()
@@ -244,8 +274,13 @@ async def send_message(
                 is_alternative = False
                 if not available_slots_list:
                     is_alternative = True
-                    alt_docs = db.query(Doctor).filter(Doctor.department == "General Medicine").all()
+                    # Fallback to General Medicine in that city
+                    alt_docs = db.query(Doctor).filter(Doctor.department == "General Medicine", Doctor.city == user_city).all()
                     if not alt_docs:
+                        # Fallback to any Doctor in that city
+                        alt_docs = db.query(Doctor).filter(Doctor.city == user_city).all()
+                    if not alt_docs:
+                        # Global fallback
                         alt_docs = db.query(Doctor).all()
                     for doc in alt_docs:
                         slots = db.query(DoctorSlot).filter(DoctorSlot.doctor_id == doc.id, DoctorSlot.is_booked == False).all()
@@ -578,7 +613,19 @@ async def send_message(
     triage_info = run_triage_assessment(req.content, format_patient_context_summary(patient_ctx))
     triage_info["is_finalized"] = True
     
-    bot_reply_content += "\n\nWould you like me to book an appointment with a specialist for this?"
+    disease, specialty = map_complaint_to_disease_and_specialty(patient_ctx.primary_complaint or "issue")
+    user_city = detect_user_city(past_messages, req.content)
+    
+    docs = db.query(Doctor).filter(Doctor.department == specialty, Doctor.city == user_city).all()
+    diagnosis_msg = f"\n\nBased on your symptoms, it is likely that you have **{disease}**. Therefore, we recommend that you see a **{specialty}** specialist."
+    
+    if docs:
+        doctor_details = "\n".join([f"- **{doc.name}** ({doc.title}, {doc.room_no}, {doc.experience_years} years experience)" for doc in docs])
+        diagnosis_msg += f"\n\nI found the following **{specialty}** specialists in **{user_city}**:\n{doctor_details}"
+    else:
+        diagnosis_msg += f"\n\nNo specific **{specialty}** specialists are currently available in **{user_city}**."
+        
+    bot_reply_content += diagnosis_msg + "\n\nWould you like me to book an appointment with a specialist for this?"
     patient_ctx.booking_state = "PROMPTED"
 
     # Auto-Escalation Check

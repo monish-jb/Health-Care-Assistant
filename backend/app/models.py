@@ -142,6 +142,7 @@ class Doctor(Base):
     title = Column(String, default="Senior Consultant")
     room_no = Column(String, default="Room 204")
     experience_years = Column(Integer, default=10)
+    city = Column(String, default="Bangalore", nullable=True)
     avatar_url = Column(String, nullable=True)
 
     slots = relationship("DoctorSlot", back_populates="doctor", cascade="all, delete-orphan")
