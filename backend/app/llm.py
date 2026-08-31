@@ -1,3 +1,4 @@
+import json
 import httpx
 import logging
 import random
@@ -207,71 +208,72 @@ class TemplateProvider(BaseLLMProvider):
                     break
 
             if has_bathing:
-                return (
-                    "It's helpful to know this water contact trigger during bathing. "
-                    "Are you experiencing any other symptoms like fever or scalp itching?"
-                )
+                return json.dumps({
+                    "acknowledgment": "It's helpful to know this water contact trigger during bathing.",
+                    "next_message": "Are you experiencing any other symptoms like fever or scalp itching?"
+                })
 
             # Generate warm, clinician-toned response based on the active field
             if active_field == "primary_complaint":
                 if context and "clarify_retry: True" in context:
-                    return (
-                        "No worries — could you describe what you're experiencing in your own words? "
-                        "For example: pain, itching, hair thinning, fatigue, etc."
-                    )
-                return (
-                    "What's the main health issue or primary symptom you're experiencing today?"
-                )
+                    return json.dumps({
+                        "acknowledgment": "No worries.",
+                        "next_message": "Could you describe what you're experiencing in your own words? For example: pain, itching, hair thinning, fatigue, etc."
+                    })
+                return json.dumps({
+                    "acknowledgment": "Hi there! I'm your health companion.",
+                    "next_message": "What's the main health issue or primary symptom you're experiencing today?"
+                })
             elif active_field == "duration":
-                return (
-                    f"Alright, thank you for sharing that symptom."
-                    f"How many days or weeks has this {user_msg or 'symptom'} been going on?"
-                )
+                return json.dumps({
+                    "acknowledgment": f"Alright, thank you for sharing that symptom.",
+                    "next_message": f"How many days or weeks has this {user_msg or 'symptom'} been going on?"
+                })
             elif active_field == "onset_pattern":
-                return (
-                    f"Thanks for sharing that it has been going on for {user_msg}. "
-                    "Did this start suddenly or gradually? Is it constant or does it come and go?"
-                )
+                return json.dumps({
+                    "acknowledgment": f"Thanks for sharing that it has been going on for {user_msg}.",
+                    "next_message": "Did this start suddenly or gradually? Is it constant or does it come and go?"
+                })
             elif active_field == "associated_symptoms":
-                return (
-                    f"Got it, so it behaves as {user_msg}. "
-                    "Are you noticing any other symptoms along with this — e.g. fever, fatigue, pain, nausea, cough?"
-                )
+                return json.dumps({
+                    "acknowledgment": f"Got it, so it behaves as {user_msg}.",
+                    "next_message": "Are you noticing any other symptoms along with this — e.g. fever, fatigue, pain, nausea, cough?"
+                })
             elif active_field == "severity":
-                return (
-                    f"Okay, thanks for noting those associated symptoms: {user_msg}. "
-                    "On a scale of 1 to 10, how severe is it?"
-                )
+                return json.dumps({
+                    "acknowledgment": f"Okay, thanks for noting those associated symptoms: {user_msg}.",
+                    "next_message": "On a scale of 1 to 10, how severe is it?"
+                })
             elif active_field == "known_conditions":
-                return (
-                    f"I understand, a severity of {user_msg} is helpful to know. "
-                    "Do you have any pre-existing health conditions like diabetes, BP, or thyroid issues?"
-                )
+                return json.dumps({
+                    "acknowledgment": f"I understand, a severity of {user_msg} is helpful to know.",
+                    "next_message": "Do you have any pre-existing health conditions like diabetes, BP, or thyroid issues?"
+                })
             elif active_field == "medications":
-                return (
-                    f"Got it, regarding your pre-existing health conditions: {user_msg}. "
-                    "Are you currently taking any prescription medications or supplements?"
-                )
+                return json.dumps({
+                    "acknowledgment": f"Got it, regarding your pre-existing health conditions: {user_msg}.",
+                    "next_message": "Are you currently taking any prescription medications or supplements?"
+                })
             elif active_field == "allergies":
-                return (
-                    f"Understood, regarding daily medications or supplements: {user_msg}. "
-                    "Do you have any known drug or environmental allergies?"
-                )
+                return json.dumps({
+                    "acknowledgment": f"Understood, regarding daily medications or supplements: {user_msg}.",
+                    "next_message": "Do you have any known drug or environmental allergies?"
+                })
             elif active_field == "recent_exposure":
-                return (
-                    f"Noted, regarding allergies: {user_msg}. "
-                    "Have you had any recent travel or exposure to someone sick?"
-                )
+                return json.dumps({
+                    "acknowledgment": f"Noted, regarding allergies: {user_msg}.",
+                    "next_message": "Have you had any recent travel or exposure to someone sick?"
+                })
             elif active_field == "safety_red_flags":
-                return (
-                    f"Thanks for clarifying that exposure history: {user_msg}. "
-                    "Lastly, are you experiencing difficulty breathing, chest pain, or severe bleeding?"
-                )
+                return json.dumps({
+                    "acknowledgment": f"Thanks for clarifying that exposure history: {user_msg}.",
+                    "next_message": "Lastly, are you experiencing difficulty breathing, chest pain, or severe bleeding?"
+                })
             else:
-                return (
-                    "That is reassuring to hear. "
-                    "Would you like me to book an appointment with a specialist for this?"
-                )
+                return json.dumps({
+                    "acknowledgment": "That is reassuring to hear.",
+                    "next_message": "Would you like me to book an appointment with a specialist for this?"
+                })
 
         user_msg = messages[-1]["content"] if messages else ""
         user_msg_lower = user_msg.lower().strip()
