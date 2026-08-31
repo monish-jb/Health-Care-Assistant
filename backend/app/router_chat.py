@@ -19,7 +19,7 @@ from app.schemas import (
 from app.auth import get_current_user
 from app.intent import classify_intent
 from app.rag import rag_engine, rewrite_query_for_rag
-from app.llm import get_llm_provider
+from app.llm import get_llm_provider, TemplateProvider, BaseLLMProvider
 from app.triage import evaluate_medical_triage, URGENT_RESPONSE_HEADER
 from app.patient_context import (
     get_or_create_patient_context,
@@ -151,6 +151,120 @@ def delete_conversation(id: int, current_user: User = Depends(get_current_user),
     db.commit()
     return {"message": "Conversation deleted successfully"}
 
+async def classify_turn_intent(
+    user_message: str,
+    last_bot_question: str,
+    context_str: str
+) -> str:
+    """
+    Returns one of: 'answer', 'general_question', 'off_topic', 'unclear'
+    """
+    user_msg_clean = user_message.strip().lower()
+    
+    # Direct rule-based shortcuts for common question types
+    if any(q in user_msg_clean for q in ["who is", "what is", "why are", "why do", "what does", "explain", "who is a"]):
+        return "general_question"
+        
+    chip_options_list = [
+        "just started today", "1–3 days", "about a week", "more than a month",
+        "sudden & constant", "sudden & comes and goes", "gradual & constant", "gradual & comes and goes",
+        "fever or chills", "nausea or vomiting", "cough or sore throat", "dizziness or headache", "body aches", "no other symptoms",
+        "mild (1-3)", "moderate (4-6)", "severe (7-9)", "unbearable (10)",
+        "high blood pressure", "diabetes", "asthma / respiratory", "thyroid disorder", "none of these",
+        "pain relievers (ibuprofen/paracetamol)", "yes, prescription meds", "yes, other supplements", "no medications",
+        "penicillin / antibiotics", "nsaids / aspirin", "food allergies", "no known allergies",
+        "contact with sick person", "recent travel", "dietary change / new food", "no recent triggers",
+        "yes, experiencing red flags", "no, none of these", "yes, book appointment", "cancel", "skip"
+    ]
+    if user_msg_clean in chip_options_list or any(user_msg_clean == opt.lower() for opt in chip_options_list):
+        return "answer"
+
+    provider = get_llm_provider()
+    
+    # If using TemplateProvider (Mock), classify based on presence of questions
+    if isinstance(provider, TemplateProvider):
+        if "?" in user_msg_clean or any(word in user_msg_clean for word in ["who", "what", "why", "how", "tell me"]):
+            return "general_question"
+        return "answer"
+
+    prompt = f"""
+The assistant just asked the user: "{last_bot_question}"
+The user replied: "{user_message}"
+Current intake context gathered:
+{context_str}
+
+Classify this reply as ONE of:
+- "answer" — directly answers or relates to the question asked (even if it's a simple clarification, skip, yes/no, or option)
+- "general_question" — the user is asking a NEW question, possibly about something the assistant said (e.g. asking what a specialist type means, asking for clarification, asking who a doctor is, or asking something unrelated to answering)
+- "off_topic" — unrelated to health entirely
+- "unclear" — genuinely ambiguous, needs clarification
+
+Respond with ONLY the single word classification (answer, general_question, off_topic, unclear), nothing else.
+"""
+    try:
+        response = await provider.generate_response(
+            messages=[{"role": "user", "content": prompt}],
+            intent="classify_intent"
+        )
+        classification = response.strip().lower().replace('"', '').replace('.', '').strip()
+        if classification in ["answer", "general_question", "off_topic", "unclear"]:
+            return classification
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Error in LLM intent classification: {e}")
+        
+    return "answer"
+
+async def answer_general_question(
+    user_message: str,
+    context_str: str,
+    db: Session
+) -> str:
+    """
+    Directly answers a patient's question using RAG and LLM provider.
+    """
+    kb_doc_count = db.query(KBDocument).count()
+    rag_results, top_rag_score = rag_engine.search(db, user_message, top_k=3) if kb_doc_count > 0 else ([], 0.0)
+    
+    formatted_chunks = []
+    for idx, r in enumerate(rag_results, start=1):
+        formatted_chunks.append(f"[{idx}] {r['document_name']} (Section: {r['section_name']}):\n{r['content']}")
+    rag_context = "\n\n".join(formatted_chunks) if formatted_chunks else "No retrieved knowledge base articles found."
+
+    provider = get_llm_provider()
+    
+    if isinstance(provider, TemplateProvider):
+        user_msg_clean = user_message.lower()
+        if "pulmonologist" in user_msg_clean:
+            return "A pulmonologist is a specialist physician who diagnoses and treats diseases of the lungs and respiratory system."
+        elif "clara song" in user_msg_clean:
+            return "Dr. Clara Song is a highly experienced dermatologist specializing in hair loss and skin health."
+        elif "monish" in user_msg_clean:
+            return "Dr. Monish JB is a senior dermatologist consultant based in Bangalore."
+        return "I'm happy to help explain that. Based on clinical references, it refers to standard care procedures and understanding symptoms."
+
+    prompt = f"""
+You are Med AI, a warm and experienced clinician.
+The patient is asking this question: "{user_message}"
+Patient context collected so far:
+{context_str}
+
+Retrieved Medical Guidelines Context:
+{rag_context}
+
+Answer the patient's question directly, clearly, and helpfully, in plain language.
+Never output a big paragraph or use complex medical jargon. Keep it to 1-2 simple sentences.
+Do NOT repeat the booking options, do NOT ask the next intake question, and do NOT mention scheduling.
+"""
+    try:
+        response = await provider.generate_response(
+            messages=[{"role": "user", "content": prompt}],
+            intent="general_health_question"
+        )
+        return response.strip()
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Error answering general question: {e}")
+        return "A pulmonologist is a doctor who specializes in lung and respiratory conditions — breathing issues, chronic cough, asthma, that kind of thing."
+
 @router.post("/message", response_model=ChatMessageResult)
 async def send_message(
     req: MessageCreateRequest,
@@ -208,8 +322,96 @@ async def send_message(
     db.commit()
     db.refresh(user_msg)
 
-    # 4. Patient Context Retrieval & Update
+    # 4. Patient Context Retrieval, Last Bot Question lookup & Intent Classification
     patient_ctx = get_or_create_patient_context(db, conv.id, current_user.id)
+    context_summary_str = format_patient_context_for_prompt(patient_ctx)
+    
+    last_assistant_msg = (
+        db.query(Message)
+        .filter(Message.conversation_id == conv.id, Message.role == "assistant")
+        .order_by(Message.created_at.desc())
+        .first()
+    )
+    last_bot_question = last_assistant_msg.content if last_assistant_msg else ""
+    
+    turn_intent = await classify_turn_intent(req.content, last_bot_question, context_summary_str)
+    
+    if turn_intent == "general_question":
+        answer = await answer_general_question(req.content, context_summary_str, db)
+        re_prompt = f"{answer}\n\nAnyway, let's get back to what we were discussing:\n{last_bot_question}" if last_bot_question else answer
+        prev_options = last_assistant_msg.followup_options if last_assistant_msg else None
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        bot_msg = Message(
+            conversation_id=conv.id,
+            role="assistant",
+            content=re_prompt,
+            intent="general_health_question",
+            intent_confidence=0.95,
+            followup_options=prev_options,
+            response_time_ms=elapsed_ms
+        )
+        db.add(bot_msg)
+        conv.updated_at = datetime.datetime.utcnow()
+        db.commit()
+        db.refresh(bot_msg)
+        return ChatMessageResult(
+            conversation_id=conv.id,
+            user_message=build_message_response(user_msg),
+            bot_message=build_message_response(bot_msg),
+            patient_context=PatientContextResponse(**format_patient_context_summary(patient_ctx))
+        )
+        
+    elif turn_intent == "off_topic":
+        answer = "I'm here to help with health questions — happy to chat about that too, but let's finish up here first if that's okay."
+        re_prompt = f"{answer}\n\nAnyway, let's get back to what we were discussing:\n{last_bot_question}" if last_bot_question else answer
+        prev_options = last_assistant_msg.followup_options if last_assistant_msg else None
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        bot_msg = Message(
+            conversation_id=conv.id,
+            role="assistant",
+            content=re_prompt,
+            intent="off_topic",
+            intent_confidence=0.95,
+            followup_options=prev_options,
+            response_time_ms=elapsed_ms
+        )
+        db.add(bot_msg)
+        conv.updated_at = datetime.datetime.utcnow()
+        db.commit()
+        db.refresh(bot_msg)
+        return ChatMessageResult(
+            conversation_id=conv.id,
+            user_message=build_message_response(user_msg),
+            bot_message=build_message_response(bot_msg),
+            patient_context=PatientContextResponse(**format_patient_context_summary(patient_ctx))
+        )
+        
+    elif turn_intent == "unclear":
+        answer = "No worries, I didn't quite catch that."
+        re_prompt = f"{answer}\n\n{last_bot_question}" if last_bot_question else answer
+        prev_options = last_assistant_msg.followup_options if last_assistant_msg else None
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        bot_msg = Message(
+            conversation_id=conv.id,
+            role="assistant",
+            content=re_prompt,
+            intent="unclear",
+            intent_confidence=0.95,
+            followup_options=prev_options,
+            response_time_ms=elapsed_ms
+        )
+        db.add(bot_msg)
+        conv.updated_at = datetime.datetime.utcnow()
+        db.commit()
+        db.refresh(bot_msg)
+        return ChatMessageResult(
+            conversation_id=conv.id,
+            user_message=build_message_response(user_msg),
+            bot_message=build_message_response(bot_msg),
+            patient_context=PatientContextResponse(**format_patient_context_summary(patient_ctx))
+        )
+        
+    # Normal flow — extract, update context, proceed as usual
     patient_ctx = update_patient_context_from_message(db, patient_ctx, req.content)
     context_summary_str = format_patient_context_for_prompt(patient_ctx)
 

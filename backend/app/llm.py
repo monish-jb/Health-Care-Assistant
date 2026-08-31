@@ -225,48 +225,55 @@ class TemplateProvider(BaseLLMProvider):
                     "next_message": "What's the main health issue or primary symptom you're experiencing today?"
                 })
             elif active_field == "duration":
+                primary_complaint = "symptom"
+                if messages and messages[0]["role"] == "system":
+                    sys_content = messages[0]["content"]
+                    import re
+                    m_comp = re.search(r"\-\s+\*\*Primary Complaint\*\*:\s*(.*)", sys_content)
+                    if m_comp:
+                        primary_complaint = m_comp.group(1).strip()
                 return json.dumps({
-                    "acknowledgment": f"Alright, thank you for sharing that symptom.",
-                    "next_message": f"How many days or weeks has this {user_msg or 'symptom'} been going on?"
+                    "acknowledgment": "Alright, thank you for sharing that symptom.",
+                    "next_message": f"How many days or weeks has this {primary_complaint} been going on?"
                 })
             elif active_field == "onset_pattern":
                 return json.dumps({
-                    "acknowledgment": f"Thanks for sharing that it has been going on for {user_msg}.",
+                    "acknowledgment": "Got it, thanks for sharing that duration.",
                     "next_message": "Did this start suddenly or gradually? Is it constant or does it come and go?"
                 })
             elif active_field == "associated_symptoms":
                 return json.dumps({
-                    "acknowledgment": f"Got it, so it behaves as {user_msg}.",
+                    "acknowledgment": "Understood, that description of the pattern is helpful.",
                     "next_message": "Are you noticing any other symptoms along with this — e.g. fever, fatigue, pain, nausea, cough?"
                 })
             elif active_field == "severity":
                 return json.dumps({
-                    "acknowledgment": f"Okay, thanks for noting those associated symptoms: {user_msg}.",
+                    "acknowledgment": "Okay, thanks for detailing those associated symptoms.",
                     "next_message": "On a scale of 1 to 10, how severe is it?"
                 })
             elif active_field == "known_conditions":
                 return json.dumps({
-                    "acknowledgment": f"I understand, a severity of {user_msg} is helpful to know.",
+                    "acknowledgment": "I understand, rating the severity helps me understand how you're feeling.",
                     "next_message": "Do you have any pre-existing health conditions like diabetes, BP, or thyroid issues?"
                 })
             elif active_field == "medications":
                 return json.dumps({
-                    "acknowledgment": f"Got it, regarding your pre-existing health conditions: {user_msg}.",
+                    "acknowledgment": "Got it, thank you for letting me know your health background.",
                     "next_message": "Are you currently taking any prescription medications or supplements?"
                 })
             elif active_field == "allergies":
                 return json.dumps({
-                    "acknowledgment": f"Understood, regarding daily medications or supplements: {user_msg}.",
+                    "acknowledgment": "Understood, that medication information is helpful.",
                     "next_message": "Do you have any known drug or environmental allergies?"
                 })
             elif active_field == "recent_exposure":
                 return json.dumps({
-                    "acknowledgment": f"Noted, regarding allergies: {user_msg}.",
+                    "acknowledgment": "Noted, keeping track of allergies is very important.",
                     "next_message": "Have you had any recent travel or exposure to someone sick?"
                 })
             elif active_field == "safety_red_flags":
                 return json.dumps({
-                    "acknowledgment": f"Thanks for clarifying that exposure history: {user_msg}.",
+                    "acknowledgment": "Thanks for clarifying that history.",
                     "next_message": "Lastly, are you experiencing difficulty breathing, chest pain, or severe bleeding?"
                 })
             else:
@@ -287,9 +294,22 @@ class TemplateProvider(BaseLLMProvider):
                 f"Please contact a healthcare provider or visit your nearest emergency room right away."
             )
 
+        # Get the actual last user message content (un-appended)
+        actual_user_msg = ""
+        for m in reversed(messages):
+            if m["role"] == "user":
+                content = m["content"]
+                if "User Prompt:" in content:
+                    actual_user_msg = content.split("Patient Context:")[0].replace("User Prompt:", "").strip()
+                else:
+                    actual_user_msg = content.strip()
+                break
+        actual_user_msg_lower = actual_user_msg.lower()
+
         # ── Greetings ──
         greetings = ["hello", "hi", "hey", "greetings", "good morning", "good evening", "good afternoon"]
-        if any(greet in user_msg_lower for greet in greetings):
+        import re
+        if any(re.search(rf"\b{re.escape(greet)}\b", actual_user_msg_lower) for greet in greetings):
             responses = [
                 "Hey! How's it going? What's on your mind today?",
                 "Hi there! I'm your health companion. How can I help you today?",
@@ -299,7 +319,8 @@ class TemplateProvider(BaseLLMProvider):
             return random.choice(responses)
 
         # ── Thank you / Closing ──
-        if any(w in user_msg_lower for w in ["thank", "thanks", "ok fine", "okay", "got it", "sounds good"]):
+        closings_words = ["thank", "thanks", "ok fine", "okay", "got it", "sounds good"]
+        if any(re.search(rf"\b{re.escape(w)}\b", actual_user_msg_lower) for w in closings_words):
             closings = [
                 "Glad that was helpful! If you have any more questions or the symptoms change, don't hesitate to reach out. Take care! 😊",
                 "You're welcome! Take care of yourself, and feel free to come back if you need anything. Wishing you a speedy recovery!",
