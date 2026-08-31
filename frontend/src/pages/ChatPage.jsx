@@ -151,8 +151,9 @@ export const ChatPage = () => {
 
   const handleSelectOptionChip = (chipText) => {
     if (chipText.toLowerCase() === 'other' || chipText.toLowerCase() === 'others') {
-      if (chatInputRef.current) {
-        chatInputRef.current.focus();
+      const customResponse = prompt("Please enter your custom response:");
+      if (customResponse && customResponse.trim()) {
+        executeSendMessage(customResponse.trim());
       }
     } else {
       executeSendMessage(chipText);
