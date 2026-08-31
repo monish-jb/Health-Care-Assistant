@@ -152,7 +152,8 @@ export const ChatPage = () => {
   };
 
   const handleSelectOptionChip = (chipText) => {
-    if (chipText.toLowerCase() === 'other' || chipText.toLowerCase() === 'others') {
+    const textLower = chipText.toLowerCase();
+    if (textLower === 'other' || textLower === 'others' || textLower.includes('none of the above')) {
       setCustomReplyText('');
       setShowOtherModal(true);
     } else {

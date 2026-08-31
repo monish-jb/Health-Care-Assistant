@@ -480,7 +480,7 @@ async def send_message(
             option_chips = ["Yes, experiencing red flags", "No, none of these"]
 
         if option_chips:
-            option_chips.append("Other")
+            option_chips.append("If none of the above, please state your response")
 
         past_messages = (
             db.query(Message)
