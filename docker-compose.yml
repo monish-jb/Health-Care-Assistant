@@ -1,0 +1,9 @@
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    env_file: .env
+    volumes:
+      # models are mounted, not baked into the image or committed to git
+      - ./checkpoints:/srv/checkpoints:ro
+      - ./app/disease/model.pkl:/srv/app/disease/model.pkl:ro

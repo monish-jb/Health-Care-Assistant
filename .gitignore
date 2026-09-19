@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+.pytest_cache/
+# model artifacts: use Git LFS / object storage / model registry instead
+*.pt
+*.pkl
+*.onnx
+data/raw/*
+data/processed/*
+!data/**/.gitkeep
+chroma/
