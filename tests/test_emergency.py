@@ -16,3 +16,9 @@ def test_negation():
 
 def test_breathing():
     assert detect_emergency("I can't breathe properly") is not None
+
+def test_negation_does_not_hide_real_emergency():
+    assert detect_emergency("I have no fever but I have chest pain") is not None
+
+def test_curly_apostrophe():
+    assert detect_emergency("I can\u2019t breathe") is not None
